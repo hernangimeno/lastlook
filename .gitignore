@@ -11,3 +11,4 @@ dist/
 *.rendered.jsonl
 campaign.json
 .DS_Store
+dist/
