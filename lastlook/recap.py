@@ -256,9 +256,14 @@ def render(issues, max_items=5, rules_run=None, campaign_path=None):
         if dat:
             lines.append(f"It can also suggest corrected values for "
                          f"{len(dat)} ({', '.join(sorted(dat))}).")
-        target = campaign_path or "<campaign>.json"
-        lines.append(f"    lastlook fix {target}            # show the diff, write nothing")
-        lines.append(f"    lastlook fix {target} --apply    # push it to the platform")
+        if campaign_path:
+            lines.append(f"    lastlook fix {campaign_path}            # show the diff, write nothing")
+            lines.append(f"    lastlook fix {campaign_path} --apply    # push it to the platform")
+        else:
+            # `audit` streams and never writes the campaign to disk, so pointing
+            # at a file that does not exist would just fail for the user.
+            lines.append("    lastlook pull <platform> --campaign <x> -o c.json")
+            lines.append("    lastlook fix c.json [--apply]")
     lines.append("=" * 64)
     return "\n".join(lines)
 
