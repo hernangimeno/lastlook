@@ -1,0 +1,35 @@
+{
+  "platform": "heyreach",
+  "campaign": { "id": "li-77", "name": "Demo — LinkedIn Sequence" },
+  "steps": [
+    {
+      "step": 1,
+      "channel": "connection_request",
+      "limits": { "body": 300 },
+      "variants": [
+        { "id": "A",
+          "subject": "",
+          "body": "Hi {{firstName}}, I came across {{company}} and was really impressed by the work your team is doing in the space. I'd genuinely love to connect and swap notes sometime, because I think there's a lot of overlap in what we're both trying to build here at the moment. Check out https://example.com to see what we do.",
+          "disabled": false, "fallbacks": {}, "signal": null }
+      ]
+    },
+    {
+      "step": 2,
+      "channel": "inmail",
+      "limits": { "subject": 200, "body": 1900 },
+      "variants": [
+        { "id": "A",
+          "subject": "quick idea for {{company}}",
+          "body": "{{firstName}}, following up. Worth a chat?",
+          "disabled": false, "fallbacks": {}, "signal": null }
+      ]
+    }
+  ],
+  "leads": [
+    { "id": "p1", "email": null, "first_name": "Dana", "company_name": "Northstar",
+      "payload": { "company": "Northstar" } },
+    { "id": "p2", "email": null, "first_name": "Lee", "company_name": "Vertex",
+      "payload": { "company": "Vertex" } }
+  ],
+  "handoffs": [ { "type": "SEND_LEAD_TO_INSTANTLY", "targetId": "non-existent-guid-123", "resourceType": 1 } ]
+}

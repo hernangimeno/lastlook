@@ -1,0 +1,26 @@
+{
+  "platform": "fixture",
+  "campaign": { "id": "cond-001", "name": "Conditional + clean-render smoke test" },
+  "steps": [
+    {
+      "step": 1,
+      "channel": "email",
+      "limits": {},
+      "variants": [
+        {
+          "id": "A",
+          "subject": "hi {{firstName}}",
+          "body": "Hey {{firstName}}, {{#if Stage}}I see you're at the {{Stage}} stage so scaling matters.{{else}}wherever you are in the journey.{{/if}} Worth a chat?",
+          "disabled": false,
+          "fallbacks": {},
+          "signal": null
+        }
+      ]
+    }
+  ],
+  "leads": [
+    { "id": "1", "email": "a@b.com", "first_name": "Ann", "payload": { "Stage": "Series A" } },
+    { "id": "2", "email": "b@b.com", "first_name": "Ben", "payload": { "Stage": "" } },
+    { "id": "3", "email": "c@b.com", "first_name": "Cat", "payload": {} }
+  ]
+}

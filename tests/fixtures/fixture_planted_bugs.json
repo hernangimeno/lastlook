@@ -1,0 +1,50 @@
+{
+  "platform": "fixture",
+  "campaign": { "id": "demo-001", "name": "Demo — Planted Bugs" },
+  "steps": [
+    {
+      "step": 1,
+      "channel": "email",
+      "limits": {},
+      "variants": [
+        {
+          "id": "1A",
+          "signal": "overspend",
+          "subject": "is {{company}}'s paid spend mapping to pipeline?",
+          "body": "Hi {{firstName}},\n\nNoticed {{company}} is scaling ads. Most teams at {{funding_stage}} stage hit the same wall.\n\nWorth a quick chat?\n\nHernan",
+          "fallbacks": { "funding_stage": "your" }
+        },
+        {
+          "id": "1B",
+          "signal": "overspend",
+          "subject": "quick one for {{firstName}}",
+          "body": "Hey {{firstName}},\n\nI loved what you're building at {{company}}. We helped {{competitor}} cut CAC by 30%.\n\nOpen to it?\n\nHernan"
+        }
+      ]
+    },
+    {
+      "step": 2,
+      "channel": "email",
+      "limits": {},
+      "variants": [
+        {
+          "id": "2A",
+          "signal": "hiring",
+          "subject": "following up — {{company}}",
+          "body": "{{firstName}}, {{ai_personalization}}. Thought it was worth a second note.\n\nHernan"
+        }
+      ]
+    }
+  ],
+  "leads": [
+    { "id": "L1", "email": "jane@acme.com", "first_name": "Jane", "company_name": "Acme",
+      "payload": { "company": "Acme", "competitor": "Beta Co", "funding_stage": "Series A",
+                   "ai_personalization": "saw your team doubled headcount last quarter" } },
+    { "id": "L2", "email": "bob@globex.com", "first_name": "BOB", "company_name": "Globex Inc.",
+      "payload": { "company": "Globex Inc.", "competitor": "", "funding_stage": "Seed",
+                   "ai_personalization": "I couldn't find recent information about this company" } },
+    { "id": "L3", "email": "sam@initech.com", "first_name": "Sam", "company_name": "Initech",
+      "payload": { "company": "", "competitor": "Rivalcorp", "funding_stage": "Series B",
+                   "ai_personalization": "they recently expanded into the EU market" } }
+  ]
+}

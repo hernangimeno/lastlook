@@ -1,0 +1,102 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/hernangimeno/lastlook/schema/campaign.schema.json",
+  "title": "lastlook normalized campaign",
+  "description": "The contract between an adapter and the engine. An adapter's only job is to emit this shape; render and check never learn which platform produced it. Write a new adapter against this file, not against another adapter.",
+  "type": "object",
+  "required": ["platform", "campaign", "steps", "leads"],
+  "properties": {
+    "schema_version": {
+      "type": "integer",
+      "description": "Bumped only on a breaking change to this shape.",
+      "default": 1
+    },
+    "platform": {
+      "type": "string",
+      "description": "Where this came from: instantly, heyreach, csv, fixture, ..."
+    },
+    "campaign": {
+      "type": "object",
+      "required": ["name"],
+      "properties": {
+        "id": { "type": "string" },
+        "name": { "type": "string" }
+      }
+    },
+    "defined_vars": {
+      "type": ["array", "null"],
+      "items": { "type": "string" },
+      "description": "Variables the PLATFORM says exist. Null when the platform has no registry (HeyReach, CSV). Null vs empty matters: null disables the undefined-tag check rather than reporting every tag as undefined."
+    },
+    "steps": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["step", "variants"],
+        "properties": {
+          "step": { "type": ["integer", "string"], "description": "1-based position in the sequence." },
+          "channel": {
+            "type": "string",
+            "enum": ["email", "connection_request", "message", "inmail"],
+            "default": "email"
+          },
+          "delay_days": {
+            "type": ["number", "null"],
+            "description": "Days to wait AFTER this step before the next one. Null when the platform does not state it — null disables the pacing check rather than being treated as zero."
+          },
+          "limits": {
+            "type": "object",
+            "description": "Hard character caps for this channel, e.g. {\"body\": 300} for a LinkedIn connection note.",
+            "additionalProperties": { "type": "integer" }
+          },
+          "variants": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": ["id"],
+              "properties": {
+                "id": { "type": ["string", "integer"] },
+                "subject": { "type": "string", "description": "Empty on a follow-up means the platform threads it under the first email." },
+                "body": { "type": "string", "description": "May contain HTML; the renderer strips tags and decodes entities." },
+                "disabled": { "type": "boolean", "default": false },
+                "signal": { "type": ["string", "null"], "description": "The angle this variant tests, if the platform tracks one." },
+                "fallbacks": {
+                  "type": "object",
+                  "description": "Per-variant fallback map. Inline {{var | fallback}} in the body takes precedence over this.",
+                  "additionalProperties": { "type": "string" }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "leads": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "id": { "type": ["string", "integer"] },
+          "email": { "type": ["string", "null"], "description": "Null is legitimate on a LinkedIn campaign; the list-hygiene rules skip those." },
+          "first_name": { "type": ["string", "null"] },
+          "company_name": { "type": ["string", "null"] },
+          "payload": {
+            "type": "object",
+            "description": "Custom variables. Keys are matched case-insensitively and across snake/camel, so first_name and firstName both resolve."
+          }
+        }
+      }
+    },
+    "handoffs": {
+      "type": "array",
+      "description": "Cross-platform jumps, e.g. a HeyReach step that pushes the lead into an Instantly campaign.",
+      "items": {
+        "type": "object",
+        "properties": {
+          "targetId": { "type": "string" },
+          "type": { "type": "string" }
+        }
+      }
+    }
+  }
+}
