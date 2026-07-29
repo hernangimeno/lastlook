@@ -103,6 +103,17 @@ prose. `--apply` writes them back to the platform after a typed confirmation.
 `Initech Ltd`, `Contoso® Media AG 🇨🇭`. lastlook cannot fix your CRM, so these
 export as a CSV of current → suggested.
 
+**Suggested removals** are the third output: leads worth excluding rather than
+correcting. A first name that is nothing but symbols, a placeholder like
+`there`, or a "company" that is actually a community the person belongs to —
+enrichment routinely stores Pavilion or Exit Five as an employer, and
+personalizing on it produces "relevant for Pavilion", which reads as automated
+to the recipient. Extend the community list with `--communities`.
+
+The line between a data fix and a removal is whether cleaning can recover
+anything usable. `Initech.co | We are hiring!` is a fix; `🌀` is a removal.
+lastlook never drops a lead — it only tells you which ones to drop.
+
 What it deliberately will **not** auto-fix: spam vocabulary, blank merge fields,
 placeholder text, duplicate variants, pacing. Every one of those needs a
 judgement about the offer, and a fixer that guesses does more damage than the

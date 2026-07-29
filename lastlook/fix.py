@@ -157,6 +157,11 @@ PAREN_TAIL = re.compile(r"\s*[\(\[][^)\]]*[\)\]]\s*$")
 
 def _clean_company(value):
     v = EMOJI_AND_MARKS.sub("", value).strip()
+    # Taglines and hiring notices bolted onto the company field by enrichment:
+    # "Initech.co | We are hiring!" -> "Initech.co"
+    v = v.split("|")[0].strip()
+    # A trailing domain restating the name: "Acme Inbound - AcmeInbound.com"
+    v = re.sub(r"\s*[-–—]\s*[\w.-]+\.(com|io|ai|co|net|org|eu)\s*$", "", v, flags=re.I)
     v = LEGAL_SUFFIX_TAIL.sub("", v).strip(" ,-")
     # "Affinity (CRM)" -> "Affinity";  "Foo/Bar Baz" -> "Foo"
     v = PAREN_TAIL.sub("", v)
@@ -406,3 +411,86 @@ def _apply_heyreach(campaign, edits, api_key, enabled=None):
                         f"{rr.text[:200]}. Resume it by hand in HeyReach.")
     finally:
         cx.close()
+
+
+# --- suggested removals -------------------------------------------------------
+# Some leads should not be messaged at all. Cleaning the value is the wrong fix
+# when the value is not a name, or when the "company" is a community the person
+# belongs to rather than an employer — personalizing on it produces "relevant for
+# Pavilion", which a real prospect called out as the tell that a message was
+# automated.
+#
+# Suggestions only. Nothing is deleted: which leads to drop is a targeting call.
+
+NOT_A_NAME = {
+    "there", "friend", "team", "test", "null", "none", "na", "n/a", "unknown",
+    "customer", "user", "admin", "hi", "hello", "guest", "member", "sir", "madam",
+}
+# Well-known B2B communities that enrichment routinely stores as an employer.
+# Extend per client with --communities.
+DEFAULT_COMMUNITIES = {
+    "pavilion", "exit five", "exitfive", "rev genius", "revgenius", "wizard of ops",
+    "peak community", "sales hacker", "demand curve", "superpath", "product marketing alliance",
+    "the marketing meetup", "b2b marketing exchange", "gtm partners", "hey operations",
+    "modern sales pros", "operations nation", "topline", "saastr", "dgmg", "marketingops",
+}
+URLISH = re.compile(r"(https?://|www\.|@|\.(com|io|ai|co|net|org)\b)", re.I)
+
+
+def plan_removals(campaign, communities=None):
+    """Leads worth excluding rather than correcting, each with a stated reason."""
+    comms = {c.lower().strip() for c in (communities or DEFAULT_COMMUNITIES)}
+    out = []
+
+    def add(lead, reason, evidence):
+        out.append({
+            "lead_id": lead.get("id") or lead.get("email") or "",
+            "lead_email": lead.get("email") or "",
+            "name": lead.get("first_name") or "",
+            "company": lead.get("company_name") or "",
+            "reason": reason,
+            "evidence": evidence,
+        })
+
+    for lead in campaign.get("leads", []) or []:
+        fn = (lead.get("first_name") or "").strip()
+        co = (lead.get("company_name") or "").strip()
+
+        if fn:
+            cleaned = _clean_first_name(fn)
+            if not cleaned:
+                add(lead, "name_unusable",
+                    f"first name {fn!r} is nothing but symbols once cleaned")
+            elif cleaned.lower() in NOT_A_NAME:
+                add(lead, "name_is_placeholder",
+                    f"first name {fn!r} is a placeholder, not a person")
+            elif URLISH.search(fn):
+                add(lead, "name_is_not_a_name", f"first name {fn!r} looks like a URL or address")
+
+        if co:
+            if co.lower().strip() in comms or _clean_company(co).lower() in comms:
+                add(lead, "company_is_a_community",
+                    f"{co!r} is a community, not an employer — the real employer is unknown, "
+                    f"and personalizing on it reads as automated")
+            else:
+                # Judge the CLEANED value, not the raw one. "Globex Law
+                # Office/www.globex.eu" is a real company with a URL bolted on
+                # — that is a data fix, not a reason to drop the lead. Only
+                # suggest removal when cleaning cannot recover anything usable.
+                cc = _clean_company(co)
+                if not cc:
+                    add(lead, "company_unusable", f"company {co!r} is empty once cleaned")
+                elif re.match(r"^(https?://|www\.)", cc, re.I) or "@" in cc:
+                    add(lead, "company_unusable",
+                        f"company {co!r} is still a URL or address after cleaning")
+
+    return out
+
+
+def write_removals_csv(rows, path):
+    cols = ["lead_id", "lead_email", "name", "company", "reason", "evidence"]
+    with open(path, "w", newline="", encoding="utf-8") as f:
+        w = csv.DictWriter(f, fieldnames=cols)
+        w.writeheader()
+        w.writerows(rows)
+    return path

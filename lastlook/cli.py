@@ -188,6 +188,13 @@ def cmd_fix(args):
 
     edits = fixmod.plan_template_fixes(campaign, enabled)
     data = fixmod.plan_data_fixes(campaign)
+    comms = None
+    if args.communities:
+        comms = ({ln.strip() for ln in open(args.communities, encoding="utf-8")
+                  if ln.strip() and not ln.startswith("#")}
+                 if os.path.exists(args.communities)
+                 else {t.strip() for t in args.communities.split(",") if t.strip()})
+    removals = fixmod.plan_removals(campaign, comms)
 
     print(fixmod.render_diff(edits))
     if data:
@@ -198,6 +205,20 @@ def cmd_fix(args):
             print(f"    {r['field']:<13} {r['current'][:34]!r} -> {r['suggested'][:34]!r}")
         if len(data) > 5:
             print(f"    ... {len(data) - 5} more in the CSV")
+
+    if removals:
+        rout = args.removals_out or "lastlook.removals.csv"
+        fixmod.write_removals_csv(removals, rout)
+        from collections import Counter
+        spread = ", ".join(f"{n} {r}" for r, n in Counter(x["reason"] for x in removals).items())
+        print(f"\n{len(removals)} lead(s) worth REMOVING rather than correcting -> {rout}")
+        print(f"    {spread}")
+        for r in removals[:5]:
+            who = r["name"] or r["lead_email"] or r["lead_id"]
+            print(f"    {who[:24]:<24} {r['evidence'][:66]}")
+        if len(removals) > 5:
+            print(f"    ... {len(removals) - 5} more in the CSV")
+        print("    Suggestions only — lastlook never drops a lead. Exclude them at the source.")
 
     if not args.apply:
         if edits:
@@ -304,6 +325,10 @@ def build_parser():
     p.add_argument("--key", default=None)
     p.add_argument("--only-fixes", default=None, help="comma-separated fix ids")
     p.add_argument("--data-out", default=None, help="CSV of suggested value corrections")
+    p.add_argument("--removals-out", default=None, help="CSV of leads worth excluding")
+    p.add_argument("--communities", default=None,
+                   help="comma-separated names, or a file: communities enrichment "
+                        "mistakes for employers (Pavilion, Exit Five, ...)")
     p.set_defaults(func=cmd_fix)
 
     p = sub.add_parser("coverage", help="merge-tag fill rate across the lead list")

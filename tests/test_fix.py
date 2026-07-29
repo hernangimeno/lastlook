@@ -95,5 +95,37 @@ try:
 except fix.ApplyUnsupported:
     t("unsupported platform raises ApplyUnsupported", True, True)
 
+print("\n— removals: only when cleaning cannot save it —")
+
+def camp_with(**lead):
+    return {"platform": "heyreach", "campaign": {"id": "1", "name": "n"},
+            "steps": [], "leads": [dict(id="L1", **lead)]}
+
+
+def reasons(**lead):
+    return sorted(r["reason"] for r in fix.plan_removals(camp_with(**lead)))
+
+
+t("community as employer", reasons(company_name="Pavilion"), ["company_is_a_community"])
+t("community, other casing", reasons(company_name="exit five"), ["company_is_a_community"])
+t("placeholder name", reasons(first_name="there"), ["name_is_placeholder"])
+t("pure emoji name", reasons(first_name="🌀"), ["name_unusable"])
+t("email in the name field", reasons(first_name="jane@acme.com"), ["name_is_not_a_name"])
+
+print("\n— removals: recoverable values are NOT removals —")
+for co in ("Globex Law Office/www.globex.eu", "Initech.co | We are hiring!",
+           "Acme Inbound - AcmeInbound.com", "Contoso.com, LLC",
+           "Customer.io", "Acme", "the Globex Workout®"):
+    t(f"{co!r} is a data fix, not a removal", reasons(company_name=co), [])
+for fn in ("🔷Anthony", "Dr. Sam", "Norman Gregory", "DANA", "José"):
+    t(f"{fn!r} is a data fix, not a removal", reasons(first_name=fn), [])
+
+t("clean lead suggests nothing", reasons(first_name="Jane", company_name="Acme"), [])
+t("custom community list overrides the default",
+  sorted(r["reason"] for r in fix.plan_removals(camp_with(company_name="MyClub"), {"myclub"})),
+  ["company_is_a_community"])
+t("default communities not applied when a custom list is given",
+  fix.plan_removals(camp_with(company_name="Pavilion"), {"myclub"}), [])
+
 print("\nall pass" if not fails else f"\n{fails} FAILURES")
 sys.exit(1 if fails else 0)
