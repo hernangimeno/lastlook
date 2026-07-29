@@ -367,7 +367,10 @@ def _apply_heyreach(campaign, edits, api_key, enabled=None):
         was_running = meta.json().get("status") == "IN_PROGRESS"
 
         if was_running:
-            r = cx.post("/campaign/Pause", json={"campaignId": cid})
+            # Pause/Resume take campaignId as a QUERY PARAM, not a JSON body —
+            # a body returns 400 "campaignId field is required". UpdateSequence
+            # is the opposite and takes a body. Verified live 2026-07-30.
+            r = cx.post("/campaign/Pause", params={"campaignId": cid})
             if r.status_code >= 400:
                 raise RuntimeError(f"could not pause the campaign, nothing written: "
                                    f"HTTP {r.status_code} {r.text[:200]}")
@@ -395,7 +398,7 @@ def _apply_heyreach(campaign, edits, api_key, enabled=None):
         finally:
             if was_running:
                 time.sleep(0.5)
-                rr = cx.post("/campaign/Resume", json={"campaignId": cid})
+                rr = cx.post("/campaign/Resume", params={"campaignId": cid})
                 if rr.status_code >= 400:
                     raise RuntimeError(
                         f"THE CAMPAIGN IS STILL PAUSED. The sequence write may have "
