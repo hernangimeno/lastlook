@@ -16,7 +16,7 @@ import json
 import os
 import sys
 
-from . import check, recap, render
+from . import check, fix as fixmod, recap, render
 from .validate import CampaignError, validate
 
 EXIT_CLEAR, EXIT_WARN, EXIT_BLOCK, EXIT_ERROR = 0, 1, 2, 3
@@ -175,6 +175,65 @@ def cmd_audit(args):
     return _run_checks(rows, campaign, args)
 
 
+def cmd_fix(args):
+    campaign = _load_campaign(args.campaign_json)
+    enabled = None
+    if args.only_fixes:
+        enabled = {t.strip() for t in args.only_fixes.split(",") if t.strip()}
+        known = {f[0] for f in fixmod.TEMPLATE_FIXES}
+        bad = enabled - known
+        if bad:
+            _die(f"unknown fix {sorted(bad)}. Known: {sorted(known)}")
+
+    edits = fixmod.plan_template_fixes(campaign, enabled)
+    data = fixmod.plan_data_fixes(campaign)
+
+    print(fixmod.render_diff(edits))
+    if data:
+        out = args.data_out or "lastlook.fixes.csv"
+        fixmod.write_data_csv(data, out)
+        print(f"\n{len(data)} data value(s) to correct -> {out}")
+        for r in data[:5]:
+            print(f"    {r['field']:<13} {r['current'][:34]!r} -> {r['suggested'][:34]!r}")
+        if len(data) > 5:
+            print(f"    ... {len(data) - 5} more in the CSV")
+
+    if not args.apply:
+        if edits:
+            print(f"\n{len(edits)} template edit(s). Nothing written. "
+                  f"Re-run with --apply to push them to the platform.")
+        return EXIT_CLEAR
+
+    if not edits:
+        print("\nNothing to apply.")
+        return EXIT_CLEAR
+
+    # Typed confirmation: --apply mutates a live campaign, and a flag on its own
+    # is too easy to reach for from shell history.
+    print(f"\nAbout to overwrite {len(edits)} template field(s) in "
+          f"'{campaign['campaign'].get('name')}' on {campaign.get('platform')}.")
+    if campaign.get("platform") == "heyreach":
+        print("HeyReach refuses a sequence write while running, so the campaign will be "
+              "PAUSED, updated, then RESUMED. If resume fails you will be told loudly.")
+    if not args.yes:
+        try:
+            if input("Type the campaign name to confirm: ").strip() != campaign["campaign"].get("name"):
+                print("Name did not match. Nothing written.")
+                return EXIT_CLEAR
+        except EOFError:
+            _die("--apply needs a terminal to confirm, or pass --yes.")
+
+    key = _key_for(campaign.get("platform"), args.key)
+    try:
+        n = fixmod.apply_template_fixes(campaign, edits, key, enabled)
+    except fixmod.ApplyUnsupported as e:
+        _die(str(e))
+    except Exception as e:
+        _die(f"apply failed, nothing may have been written: {e}")
+    print(f"Applied {n} field(s). Re-run `lastlook audit` to confirm.")
+    return EXIT_CLEAR
+
+
 def cmd_coverage(args):
     from . import coverage
     campaign = _load_campaign(args.campaign_json)
@@ -236,6 +295,15 @@ def build_parser():
     p.add_argument("--instantly-key", default=os.environ.get("INSTANTLY_API_KEY"))
     _add_check_flags(p)
     p.set_defaults(func=cmd_audit)
+
+    p = sub.add_parser("fix", help="show (and optionally apply) the safe fixes")
+    p.add_argument("campaign_json")
+    p.add_argument("--apply", action="store_true", help="write template edits to the platform")
+    p.add_argument("--yes", action="store_true", help="skip the typed confirmation")
+    p.add_argument("--key", default=None)
+    p.add_argument("--only-fixes", default=None, help="comma-separated fix ids")
+    p.add_argument("--data-out", default=None, help="CSV of suggested value corrections")
+    p.set_defaults(func=cmd_fix)
 
     p = sub.add_parser("coverage", help="merge-tag fill rate across the lead list")
     p.add_argument("campaign_json")

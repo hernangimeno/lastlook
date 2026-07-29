@@ -80,9 +80,33 @@ lastlook audit instantly --campaign "Q3 ACME" --key $K   # pull, render, check
 lastlook pull instantly --campaign "Q3 ACME" -o c.json   # fetch only
 lastlook render c.json -o rendered.jsonl                 # render only
 lastlook check rendered.jsonl --campaign-json c.json     # check only
+lastlook fix c.json                                      # show the safe fixes
+lastlook fix c.json --apply                              # write them back
 lastlook coverage c.json                                 # merge-tag fill rates
 lastlook rules                                           # the catalog
 ```
+
+## Fixing
+
+`lastlook fix` splits the work by where it has to happen.
+
+**Template fixes** are deterministic text edits, shown as a unified diff:
+invisible characters, another platform's merge tags (`{FIRST_NAME}` in an
+Instantly campaign), space before punctuation, doubled commas, em dashes used as
+prose. `--apply` writes them back to the platform after a typed confirmation.
+
+**Data fixes** are bad values on the leads — `🔷Anthony`, `Dr. Sam`,
+`Initech Ltd`, `Contoso® Media AG 🇨🇭`. lastlook cannot fix your CRM, so these
+export as a CSV of current → suggested.
+
+What it deliberately will **not** auto-fix: spam vocabulary, blank merge fields,
+placeholder text, duplicate variants, pacing. Every one of those needs a
+judgement about the offer, and a fixer that guesses does more damage than the
+defect.
+
+On HeyReach, a sequence cannot be written while the campaign runs, so `--apply`
+pauses it, updates, and resumes. If the resume fails you are told loudly and by
+name — a campaign left silently paused is worse than the bug being fixed.
 
 `coverage` is the proactive view of the blank-merge problem: instead of finding
 one empty `{{title}}` at a time, it tells you up front that `title` fills for 12%
