@@ -105,6 +105,17 @@ GROUP_LABEL = {
 
 # Rules whose count is a number of LEADS. Everything else is campaign-level, so
 # reporting "1 lead" for it is wrong — 7 contacts at one domain is one finding.
+# Rules lastlook can resolve itself, and how. A finding the tool could have
+# fixed but never mentioned is a worse failure than the finding: the user does
+# by hand what the CLI would have done in two seconds. Kept in sync with
+# fix.TEMPLATE_FIXES and fix.DATA_CLEANERS by a test.
+AUTOFIX_TEMPLATE = {
+    "INVISIBLE_CHARS", "UNKNOWN_SYNTAX", "DANGLING_TEXT", "DOUBLE_PUNCT", "EM_DASH",
+}
+AUTOFIX_DATA = {
+    "CASING", "LEGAL_SUFFIX", "FULL_NAME_GREETING", "NAME_QUALITY", "COMPANY_QUALITY",
+}
+
 CAMPAIGN_LEVEL = {
     "LEAD_OVER_CONTACT", "VARIANT_NOT_DISTINCT", "SHARED_OPENER", "EMPTY_SUBJECT",
     "THREAD_BREAK", "STEPS_NOT_PACED", "AB_SIGNAL_COLLISION", "BROKEN_HANDOFF",
@@ -171,7 +182,7 @@ def _place(iss):
     return f"step {step} variant {variant}"
 
 
-def render(issues, max_items=5, rules_run=None):
+def render(issues, max_items=5, rules_run=None, campaign_path=None):
     """The recap block, as a string.
 
     Shaped for someone who has to ACT on it, not study it:
@@ -232,6 +243,22 @@ def render(issues, max_items=5, rules_run=None):
     plural = "fix" if len(ranked) == 1 else "fixes"
     lines.append(f"{len(ranked)} {plural}, roughly {_fmt_minutes(total)} total."
                  + ("" if blockers else " None of it blocks launch."))
+
+    # Tell the user what they do NOT have to do by hand.
+    fired = {r for g in ranked for r in g["rules"]}
+    tpl = fired & AUTOFIX_TEMPLATE
+    dat = fired & AUTOFIX_DATA
+    if tpl or dat:
+        lines.append("")
+        if tpl:
+            lines.append(f"lastlook can fix {len(tpl)} of these for you "
+                         f"({', '.join(sorted(tpl))}).")
+        if dat:
+            lines.append(f"It can also suggest corrected values for "
+                         f"{len(dat)} ({', '.join(sorted(dat))}).")
+        target = campaign_path or "<campaign>.json"
+        lines.append(f"    lastlook fix {target}            # show the diff, write nothing")
+        lines.append(f"    lastlook fix {target} --apply    # push it to the platform")
     lines.append("=" * 64)
     return "\n".join(lines)
 

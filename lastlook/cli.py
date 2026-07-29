@@ -111,7 +111,8 @@ def _run_checks(rows, campaign, args):
     issues = check.dedup_issues(findings)
     print(check.verdict_block(rows, findings))
     if not getattr(args, "no_recap", False):
-        print(recap.render(issues, rules_run=check.RULES))
+        print(recap.render(issues, rules_run=check.RULES,
+                           campaign_path=getattr(args, 'campaign_json', None)))
     print(f"\nFull findings -> {out}")
 
     if any(i["severity"] == check.BLOCKER for i in issues):

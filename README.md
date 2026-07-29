@@ -36,6 +36,10 @@ START HERE → Edit the campaign copy  (~3 min)
 
 Clean: 31 of 35 checks found nothing.
 3 fixes, roughly 33 min total.
+
+lastlook can fix 2 of these for you (INVISIBLE_CHARS, DOUBLE_PUNCT).
+    lastlook fix campaign.json            # show the diff, write nothing
+    lastlook fix campaign.json --apply    # push it to the platform
 ================================================================
 ```
 

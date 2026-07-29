@@ -86,5 +86,28 @@ check(f"every rule has a fix action (unmapped: {sorted(unmapped) or 'none'})", n
 bad_group = {r for r, (k, _, _) in recap.FIXES.items() if k not in recap.GROUP_LABEL}
 check(f"every fix group has a label (missing: {sorted(bad_group) or 'none'})", not bad_group)
 
+# --- the fix hint ------------------------------------------------------------
+print("\n— fix hint —")
+from lastlook import fix as fixmod
+
+hinted = recap.render([issue("INVISIBLE_CHARS"), issue("EM_DASH", "BLOCKER")],
+                      rules_run=chk.RULES, campaign_path="c.json")
+check("offers the fix command when something is auto-fixable",
+      "lastlook fix c.json" in hinted)
+check("offers --apply too", "--apply" in hinted)
+check("uses the real campaign path", "<campaign>.json" not in hinted)
+
+quiet = recap.render([issue("SPAM_VOCAB"), issue("LEAD_OVER_CONTACT")],
+                     rules_run=chk.RULES, campaign_path="c.json")
+check("stays quiet when nothing is auto-fixable", "lastlook fix" not in quiet)
+
+# The hint must not promise a fix that does not exist.
+tpl_ok = recap.AUTOFIX_TEMPLATE <= set(chk.RULES)
+dat_ok = recap.AUTOFIX_DATA <= set(chk.RULES)
+check("every advertised template autofix is a real rule", tpl_ok)
+check("every advertised data autofix is a real rule", dat_ok)
+check("data autofixes correspond to real cleaners",
+      set(fixmod.DATA_CLEANERS) == {"company_name", "first_name"})
+
 print("\nall pass" if not fails else f"\n{fails} FAILURES")
 sys.exit(1 if fails else 0)
