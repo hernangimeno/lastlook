@@ -17,7 +17,7 @@ No campaign UI will show you that line before it goes out to 800 people.
 the output.
 
 ```bash
-pip install lastlook
+pip install git+https://github.com/hernangimeno/lastlook
 lastlook audit instantly --campaign "Q3 Outbound" --key $INSTANTLY_API_KEY
 ```
 
@@ -143,6 +143,7 @@ assume.
 ## Development
 
 ```bash
+git clone https://github.com/hernangimeno/lastlook && cd lastlook
 pip install -e .
 python3 tests/run_all.py           # behavioural + golden + schema + CLI
 python3 tests/run_all.py --regen   # rewrite goldens — read the diff first
