@@ -95,6 +95,12 @@ echo "INSTANTLY_API_KEY=..." > .env # 2. a .env file where you run lastlook
 lastlook audit instantly --key ...  # 3. the flag
 ```
 
+**If it cannot find a key and you are at a terminal, it asks.** Input is hidden,
+and it offers to save what you paste to `.env` (chmod 600) so you only do it
+once. It never asks when stdin is not a TTY — in cron, CI, or behind a pipe it
+prints the message and exits 3, because a prompt nobody can answer hangs the job
+forever.
+
 Copy `.env.example` to `.env` to start. **`.env` is gitignored** — if you add
 lastlook to an existing repo, check your own `.gitignore` covers it too.
 

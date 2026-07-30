@@ -114,9 +114,64 @@ def _load_dotenv():
         pass
 
 
+def _prompt_for_key(platform):
+    """Ask for the key, but ONLY when a human is actually there to answer.
+
+    Guarded on stdin AND stderr being a TTY. A prompt in a cron job, a CI step,
+    or behind a pipe does not get answered — it hangs forever, and a hung job is
+    far worse than a clear error. Non-interactive callers fall through to the
+    message and exit 3.
+    """
+    import getpass
+
+    if not (sys.stdin.isatty() and sys.stderr.isatty()):
+        return None
+    print(f"No {platform} API key found.", file=sys.stderr)
+    print(f"  Get one: {WHERE_TO_GET[platform]}", file=sys.stderr)
+    try:
+        # getpass, so the key is not echoed and does not land in a scrollback
+        # buffer someone screen-shares later.
+        key = getpass.getpass(f"  Paste your {platform} API key (input hidden): ").strip()
+    except (EOFError, KeyboardInterrupt):
+        print("", file=sys.stderr)
+        return None
+    if not key:
+        return None
+    _offer_to_save(platform, key)
+    return key
+
+
+def _offer_to_save(platform, key):
+    """Offer to persist it, so nobody pastes the same key every run."""
+    path = os.path.join(os.getcwd(), ".env")
+    try:
+        answer = input(f"  Save to {path} so you do not need to paste it again? [y/N] ")
+    except (EOFError, KeyboardInterrupt):
+        return
+    if answer.strip().lower() not in ("y", "yes"):
+        return
+    line = f"{ENV_VAR[platform]}={key}\n"
+    try:
+        existing = open(path, encoding="utf-8").read() if os.path.exists(path) else ""
+        if ENV_VAR[platform] in existing:
+            print(f"  {ENV_VAR[platform]} is already in {path}; not touching it.", file=sys.stderr)
+            return
+        with open(path, "a", encoding="utf-8") as f:
+            if existing and not existing.endswith("\n"):
+                f.write("\n")
+            f.write(line)
+        os.chmod(path, 0o600)
+        print(f"  Saved. {path} is chmod 600 — make sure your .gitignore covers it.",
+              file=sys.stderr)
+    except OSError as e:
+        print(f"  Could not write {path}: {e}", file=sys.stderr)
+
+
 def _key_for(platform, explicit):
     env = ENV_VAR[platform]
     key = explicit or os.environ.get(env)
+    if not key:
+        key = _prompt_for_key(platform)
     if not key:
         _die(f"no {platform} API key.\n"
              f"       Get one:  {WHERE_TO_GET[platform]}\n"
