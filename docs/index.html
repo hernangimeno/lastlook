@@ -183,12 +183,6 @@ h2{font-size:clamp(28px,3.4vw,42px);margin-bottom:14px;max-width:24ch}
 
 /* --- fixing --- */
 .fixgrid{display:grid;grid-template-columns:minmax(0,5fr) minmax(0,7fr);gap:48px;align-items:start}
-.fixgrid .refuse{margin-top:26px;border-top:1px solid var(--line);padding-top:22px}
-.fixgrid .refuse h3{font-size:16px;margin-bottom:12px}
-.fixgrid .refuse ul{list-style:none}
-.fixgrid .refuse li{font-size:14px;color:var(--muted);padding:7px 0;border-bottom:1px solid var(--line-soft)}
-.fixgrid .refuse li:last-child{border-bottom:none}
-.fixgrid .refuse li b{color:var(--text);font-weight:700}
 
 /* --- creds strip --- */
 .creds{border-top:1px solid var(--line-soft);border-bottom:1px solid var(--line-soft);
@@ -257,8 +251,7 @@ footer .r a:hover{color:var(--text)}
       <h1>See every message<br><span class="acc">before it sends.</span></h1>
       <p class="sub">lastlook is a command-line tool for cold outreach. Point it at a live
         Instantly or HeyReach campaign and it pulls your real leads, renders every variant
-        against each one, and runs 35 checks on the message each lead would get. A template
-        can look fine and still break on half your list.</p>
+        against each one, and runs 35 checks on the message each lead would get.</p>
       <div class="install">
         <code id="pipcmd"><span class="p">$</span> pip install git+https://github.com/hernangimeno/lastlook</code>
         <button id="copybtn" aria-label="Copy install command">copy</button>
@@ -288,7 +281,7 @@ footer .r a:hover{color:var(--text)}
     <p class="lede">Every check is deterministic, and an audit runs all of them on 100% of the rendered
       messages. Anything that could not run gets named in a NOT CHECKED block, so a rule that
       sat out never counts as clean. You get a verdict you can gate a launch on, and a recap
-      that groups the fixes by the action that clears them. This is the tool's own output:</p>
+      that groups the fixes by the action that clears them.</p>
     <div class="term rv">
       <div class="term-bar"><i></i><i></i><i></i>
         <span class="cmd">lastlook audit instantly --campaign "Q3 Outbound"</span>
@@ -342,8 +335,7 @@ footer .r a:hover{color:var(--text)}
   <div class="wrap">
     <h2>Four stages, with a plain file between them.</h2>
     <p class="lede">Run <span class="mono">audit</span> for the whole thing in one pass, or keep
-      the stages separate when you want to inspect what flows between them. The stages after the
-      adapter never learn which platform produced the file, so adding a platform is one file.
+      the stages separate when you want to inspect what flows between them.
       With more than one campaign live, <span class="mono">fleet</span> audits a whole list of
       them and ranks the results worst first.</p>
     <div class="pipe rv">
@@ -380,7 +372,7 @@ footer .r a:hover{color:var(--text)}
 
 <section id="checks">
   <div class="wrap">
-    <h2>It catches the bugs that only exist after the merge.</h2>
+    <h2>Catch the bugs that only exist after the merge.</h2>
     <p class="lede">Your sequence builder shows the template. Your prospect gets the render. The
       bugs that burn a lead live in the gap between those two, and no campaign UI shows you that gap.</p>
 
@@ -446,21 +438,10 @@ footer .r a:hover{color:var(--text)}
   <div class="wrap">
     <div class="fixgrid">
       <div>
-        <h2>Mechanical defects get a diff. Judgement stays yours.</h2>
-        <p class="lede" style="margin-bottom:0">Template fixes are deterministic text edits. You
-          see them as a unified diff, and nothing gets written back until you type the campaign's
-          name. Bad lead values export as a CSV of current and suggested values, ready for whatever
-          owns your data.</p>
-        <div class="refuse">
-          <h3>What it refuses to auto-fix, on purpose</h3>
-          <ul>
-            <li><b>Spam wording.</b> Rewording is a judgement about the offer, not a typo.</li>
-            <li><b>Blank merges.</b> The fix is a fallback or enrichment, both editorial.</li>
-            <li><b>Placeholder text.</b> Deleting it leaves a hole, not a fix.</li>
-            <li><b>Duplicate variants.</b> The fix is writing a different message.</li>
-            <li><b>Pacing.</b> The gap between steps is a settings call with money riding on it.</li>
-          </ul>
-        </div>
+        <h2>Fix all errors with one command.</h2>
+        <p class="lede" style="margin-bottom:0">lastlook suggests, you approve. Nothing gets
+          written back until you give the OK. Bad lead values export as a CSV of current and
+          suggested values, ready for whatever owns your data.</p>
       </div>
       <div class="term rv">
         <div class="term-bar"><i></i><i></i><i></i>
@@ -485,10 +466,9 @@ footer .r a:hover{color:var(--text)}
 <div class="creds">
   <div class="wrap">
     <span class="k">$INSTANTLY_API_KEY · .env · --key</span>
-    <p>Your platform's own API key is all it needs. <b>No account, no signup, no server.</b> In a
-      terminal with no key set, it asks once, hides what you type, and offers to save it to a
-      chmod-600 .env. In cron or CI it never prompts: a missing or rejected key gets a plain
-      sentence and exit 3, never a hung job and never a pass. The key is never written anywhere else.</p>
+    <p>All it needs is your Instantly or HeyReach API key. <b>No account, no signup, no server.</b>
+      It asks once, hides what you type, and stores the key on your own machine in a .env only you
+      can read. It goes to your platform and nowhere else.</p>
   </div>
 </div>
 
