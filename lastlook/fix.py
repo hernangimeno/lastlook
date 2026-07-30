@@ -25,7 +25,7 @@ import difflib
 import re
 import unicodedata
 
-from .render import INVISIBLE_RE, SPACEY_INVISIBLES, ZERO_WIDTH_INVISIBLES
+from .render import normalize_invisibles
 
 # --- template transforms ------------------------------------------------------
 # Each is (id, description, callable). Order matters: invisible characters are
@@ -50,15 +50,10 @@ FOREIGN_TAGS = {
 
 
 def _strip_invisibles(text, platform=None):
-    out = []
-    for ch in text:
-        if ch in SPACEY_INVISIBLES:
-            out.append(" ")
-        elif ch in ZERO_WIDTH_INVISIBLES:
-            continue
-        else:
-            out.append(ch)
-    return "".join(out)
+    # Delegates to the renderer so the fixer can never diverge from what the
+    # checker reports. That matters most for the zero-width joiner inside an
+    # emoji sequence, which must survive both.
+    return normalize_invisibles(text)[0]
 
 
 def _space_before_punct(text, platform=None):

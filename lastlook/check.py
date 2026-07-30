@@ -78,9 +78,15 @@ RULES = {
 
 # A blank merge leaves a strong tell: a preposition/greeting butting into
 # punctuation, or empty parens. Those mean a value vanished -> BLOCKER.
+# The tell of a collapsed merge is the SPACE left where the value used to be:
+# "at {{x}}." renders to "at ." and "Hi {{firstName}}," to "Hi ,". Requiring that
+# space (\s+, not \s*) is what separates a real gap from ordinary English.
+# With \s* this matched "someone I could speak with?", "get in touch with,",
+# "who to reach out to." and the deliberate no-name opener "Hey, not sure if…" —
+# 720 false BLOCKERS across a 34-campaign sweep, on grammatical copy.
 DANGLING_BLOCKER_RE = re.compile(
-    r"(\b(?:at|with|for|to|from|of)\s*[.,!?]"   # "...spend at ."
-    r"|\b(?:hi|hey|hello|dear)\s*[,!.]"          # "Hi ,"
+    r"(\b(?:at|with|for|to|from|of)\s+[.,!?]"   # "...spend at ."
+    r"|\b(?:hi|hey|hello|dear)\s+[,!.]"          # "Hi ,"
     r"|\(\s*\))",                                  # "( )"
     re.IGNORECASE,
 )

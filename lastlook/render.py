@@ -90,22 +90,51 @@ def strip_html(text):
     return re.sub(r"\n{3,}", "\n\n", text)
 
 
+ZWJ = "‍"
+
+
+def _is_pictographic(ch):
+    """Roughly: is this an emoji or an emoji modifier?
+
+    Used only to decide whether a zero-width joiner is doing real work. A loose
+    test is the safe direction here — treating something as emoji means we LEAVE
+    the joiner alone, and leaving a stray joiner is harmless next to breaking a
+    real one."""
+    if not ch:
+        return False
+    o = ord(ch)
+    return (0x1F000 <= o <= 0x1FAFF          # emoji blocks
+            or 0x2600 <= o <= 0x27BF          # misc symbols / dingbats
+            or 0x2190 <= o <= 0x21FF          # arrows
+            or o in (0xFE0F, 0xFE0E)          # variation selectors
+            or 0x1F3FB <= o <= 0x1F3FF)       # skin-tone modifiers
+
+
 def normalize_invisibles(text):
     """Strip invisible characters, reporting which were found.
 
     Returns (clean_text, sorted_codepoints). The renderer must show what actually
     sends, and these characters are indistinguishable from nothing on screen — so
     they are removed from the rendered text and surfaced as a finding instead of
-    silently riding along."""
-    found = {f"U+{ord(c):04X}" for c in INVISIBLE_RE.findall(text)}
-    if not found:
-        return text, []
-    out = []
-    for ch in text:
+    silently riding along.
+
+    A zero-width joiner BETWEEN two emoji is the exception: it is load-bearing.
+    U+1F926 U+200D U+2640 is one glyph, "woman facepalming"; drop the joiner and
+    it becomes two. An earlier version stripped it unconditionally, which showed
+    up on 132 rows of live client copy — and `fix --apply` would have written
+    that corruption back to the campaign."""
+    out, found = [], set()
+    n = len(text)
+    for i, ch in enumerate(text):
         if ch in SPACEY_INVISIBLES:
+            found.add(f"U+{ord(ch):04X}")
             out.append(" ")
         elif ch in ZERO_WIDTH_INVISIBLES:
-            continue
+            if ch == ZWJ and _is_pictographic(text[i - 1] if i else "") \
+                    and _is_pictographic(text[i + 1] if i + 1 < n else ""):
+                out.append(ch)          # joining an emoji sequence: leave it
+                continue
+            found.add(f"U+{ord(ch):04X}")
         else:
             out.append(ch)
     return "".join(out), sorted(found)

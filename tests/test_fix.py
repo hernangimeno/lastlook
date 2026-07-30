@@ -31,6 +31,20 @@ t("doubled period", fix._double_punct("together.. Next"), "together. Next")
 t("prose em dash", fix._prose_dash("a — b"), "a - b")
 t("collapses double space", fix._collapse_spaces("Hey  there"), "Hey there")
 
+print("\n— emoji must survive the invisible-character strip —")
+# A zero-width joiner between emoji is load-bearing: 🤦 + ZWJ + ♀ is ONE glyph.
+# Stripping it split live client copy into two emoji, and --apply would have
+# written that corruption back to the campaign.
+t("emoji ZWJ sequence survives", fix._strip_invisibles("Great work 👨\u200d💻 team"),
+  "Great work 👨\u200d💻 team")
+t("gendered emoji survives", fix._strip_invisibles("oops 🤦\u200d♀️ yes"), "oops 🤦\u200d♀️ yes")
+t("variation selector survives", fix._strip_invisibles("red ❤️ heart"), "red ❤️ heart")
+t("skin tone modifier survives", fix._strip_invisibles("wave 👋🏽 hi"), "wave 👋🏽 hi")
+t("stray ZWJ inside a word is still stripped",
+  fix._strip_invisibles("Hi\u200dJane"), "HiJane")
+t("fixer and renderer agree", fix._strip_invisibles("a 👨\u200d💻 b\u200bc"),
+  __import__("lastlook.render", fromlist=["x"]).normalize_invisibles("a 👨\u200d💻 b\u200bc")[0])
+
 print("\n— near-misses: correct text must survive untouched —")
 t("ellipsis survives", fix._double_punct("wait... really"), "wait... really")
 t("numeric en dash range survives", fix._prose_dash("11–15 hours"), "11–15 hours")

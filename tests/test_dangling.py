@@ -13,6 +13,14 @@ cases = [
     ("empty parens",              "Your team ( ) is scaling",                    True),
     ("greeting with no name",     "Hi ,\n\nGood stuff",                          True),
     ("normal sentence",           "Hi Jane,\n\nWe work with teams at Acme.",     False),
+    # Grammatical English that a \s* pattern mistook for a collapsed merge —
+    # 720 false BLOCKERS in the 34-campaign sweep.
+    ("sentence ends in a preposition", "Anyone I could speak with?",              False),
+    ("comma after a preposition",  "get in touch with, I'd appreciate it",        False),
+    ("deliberate no-name greeting","Hey, not sure if you saw this",               False),
+    ("period after a preposition", "who should I reach out to.",                  False),
+    ("'of.' at a sentence end",    "I can send a demo of.",                       False),
+    ("greeting with a real space gap", "Hey ,\n\nGood stuff",                     True),
 ]
 
 fails = 0
