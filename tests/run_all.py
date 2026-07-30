@@ -23,7 +23,7 @@ FIXTURES = os.path.join(HERE, "fixtures")
 sys.path.insert(0, ROOT)
 
 BEHAVIOURAL = ("test_dangling.py", "test_leadlist.py",
-               "test_template_integrity.py", "test_recap.py", "test_fix.py", "test_false_green.py")
+               "test_template_integrity.py", "test_recap.py", "test_fix.py", "test_false_green.py", "test_credentials.py")
 
 
 def run_behavioural():

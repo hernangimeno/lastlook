@@ -77,6 +77,37 @@ cases are treated as the important ones. `"we test your pipeline"` does not trip
 the placeholder rule; `TEST` alone does. An en dash in `11–15 hours` is correct
 typography and passes.
 
+## Credentials
+
+lastlook talks to your campaign platform, so it needs that platform's own API
+key. Nothing else — no account, no signup, no server.
+
+| Platform | Where the key lives |
+|---|---|
+| Instantly | Settings → Integrations → API Key |
+| HeyReach | Settings → API keys |
+
+Three ways to supply it, in precedence order:
+
+```bash
+export INSTANTLY_API_KEY=...        # 1. environment variable
+echo "INSTANTLY_API_KEY=..." > .env # 2. a .env file where you run lastlook
+lastlook audit instantly --key ...  # 3. the flag
+```
+
+Copy `.env.example` to `.env` to start. **`.env` is gitignored** — if you add
+lastlook to an existing repo, check your own `.gitignore` covers it too.
+
+Prefer the env var or `.env` over `--key`: a flag lands in your shell history
+and is visible to anyone who can run `ps` on the machine.
+
+The key is read, used for the request, and never written anywhere — not to the
+findings CSV, not to the campaign JSON, not to a config file.
+
+If a key is missing or rejected you get a plain sentence and **exit 3**, never a
+stack trace and never exit 1. Exit 1 means "warnings only", so an auth failure
+reading as 1 would tell a script the campaign passed.
+
 ## Commands
 
 ```bash

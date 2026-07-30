@@ -1,3 +1,9 @@
+# Credentials. lastlook tells users to put API keys here, so it must never
+# be committable.
+.env
+.env.*
+!.env.example
+
 __pycache__/
 *.py[cod]
 .venv/

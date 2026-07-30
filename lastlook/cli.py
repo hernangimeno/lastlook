@@ -22,6 +22,38 @@ from .validate import CampaignError, validate
 EXIT_CLEAR, EXIT_WARN, EXIT_BLOCK, EXIT_ERROR = 0, 1, 2, 3
 
 
+def _explain(exc):
+    """Turn a platform failure into something a human can act on.
+
+    Anything that reaches here used to surface as a raw httpx traceback and,
+    worse, exited 1 — which this tool documents as "warnings only". A rejected
+    key reading as a passing campaign is the most dangerous thing the CLI could
+    do, so every one of these ends at exit 3.
+    """
+    import httpx
+
+    if isinstance(exc, httpx.HTTPStatusError):
+        code = exc.response.status_code
+        host = exc.request.url.host
+        hint = {
+            401: "the API key was rejected — check it is current and pasted whole",
+            403: "the key is valid but lacks permission for this call",
+            402: "the platform is refusing on billing/plan grounds, not on the key",
+            404: "no campaign with that id or name on this account",
+            429: "rate limited — wait and retry",
+        }.get(code, "unexpected response")
+        extra = ""
+        if code in (401, 403):
+            plat = "instantly" if "instantly" in host else "heyreach"
+            extra = f"\n       Get a fresh one: {WHERE_TO_GET.get(plat, '')}"
+        return f"{host} returned HTTP {code} — {hint}.{extra}"
+    if isinstance(exc, httpx.ConnectError):
+        return f"could not reach {exc.request.url.host} — check your network."
+    if isinstance(exc, httpx.TimeoutException):
+        return f"{exc.request.url.host} timed out."
+    return f"{type(exc).__name__}: {exc}"
+
+
 def _die(msg):
     print(f"lastlook: {msg}", file=sys.stderr)
     raise SystemExit(EXIT_ERROR)
@@ -52,12 +84,46 @@ def _adapter(name):
     _die(f"unknown platform {name!r}. Known: instantly, heyreach.")
 
 
+WHERE_TO_GET = {
+    "instantly": "Instantly → Settings → Integrations → API Key",
+    "heyreach":  "HeyReach → Settings → API keys",
+}
+ENV_VAR = {"instantly": "INSTANTLY_API_KEY", "heyreach": "HEYREACH_API_KEY"}
+
+
+def _load_dotenv():
+    """Read KEY=value from ./.env if present. Real env vars always win.
+
+    No python-dotenv dependency: this is twelve lines and the alternative is
+    making everyone install a package to avoid putting an API key in their shell
+    history."""
+    path = os.path.join(os.getcwd(), ".env")
+    if not os.path.exists(path):
+        return
+    try:
+        with open(path, encoding="utf-8") as f:
+            for line in f:
+                line = line.strip()
+                if not line or line.startswith("#") or "=" not in line:
+                    continue
+                k, _, v = line.partition("=")
+                k, v = k.strip(), v.strip().strip("\"'")
+                if k and k not in os.environ:
+                    os.environ[k] = v
+    except OSError:
+        pass
+
+
 def _key_for(platform, explicit):
-    env = {"instantly": "INSTANTLY_API_KEY", "heyreach": "HEYREACH_API_KEY"}[platform]
+    env = ENV_VAR[platform]
     key = explicit or os.environ.get(env)
     if not key:
-        _die(f"no API key. Pass --key or set {env}.")
-    return key
+        _die(f"no {platform} API key.\n"
+             f"       Get one:  {WHERE_TO_GET[platform]}\n"
+             f"       Then either:\n"
+             f"         export {env}=...        (or put it in a .env file here)\n"
+             f"         lastlook ... --key ...   (note: this lands in your shell history)")
+    return key.strip().strip("\"'")
 
 
 def _forbidden(arg):
@@ -343,6 +409,7 @@ def build_parser():
 
 
 def main(argv=None):
+    _load_dotenv()
     ap = build_parser()
     args = ap.parse_args(argv)
     if not getattr(args, "func", None):
@@ -354,6 +421,8 @@ def main(argv=None):
         raise
     except KeyboardInterrupt:
         return EXIT_ERROR
+    except Exception as e:  # noqa: BLE001 - the CLI boundary; nothing escapes as a traceback
+        _die(_explain(e))
 
 
 if __name__ == "__main__":
