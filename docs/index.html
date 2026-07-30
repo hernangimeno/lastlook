@@ -1,0 +1,558 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>lastlook · see every message before it sends</title>
+<meta name="description" content="lastlook renders your Instantly or HeyReach campaign against every real lead and runs 35 checks on the output, not the template. Open source, MIT.">
+<link rel="canonical" href="https://hernangimeno.github.io/lastlook/">
+<meta property="og:title" content="lastlook · see every message before it sends">
+<meta property="og:description" content="Render every variant against every real lead. 35 checks on the output, not the template. Open source.">
+<meta property="og:type" content="website">
+<meta property="og:url" content="https://hernangimeno.github.io/lastlook/">
+<meta property="og:image" content="https://hernangimeno.github.io/lastlook/og.png">
+<meta name="twitter:card" content="summary_large_image">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='14' fill='%230b0d10'/%3E%3Crect x='14' y='18' width='8' height='28' fill='%233ee089'/%3E%3Cpath d='M28 46 40 18h8L36 46z' fill='%23e8ecf1'/%3E%3C/svg%3E">
+<style>
+/* ------------------------------------------------------------------
+   lastlook landing · dark theme locked · one accent (#3ee089)
+   radius system: containers 14px, interactive elements 8px
+   red + amber appear ONLY as verdict semantics inside product output
+------------------------------------------------------------------- */
+@font-face{font-family:'Satoshi';src:url('fonts/satoshi-500.woff2') format('woff2');font-weight:500;font-display:swap}
+@font-face{font-family:'Satoshi';src:url('fonts/satoshi-700.woff2') format('woff2');font-weight:700;font-display:swap}
+@font-face{font-family:'Satoshi';src:url('fonts/satoshi-900.woff2') format('woff2');font-weight:900;font-display:swap}
+@font-face{font-family:'JBMono';src:url('fonts/jetbrains-mono.woff2') format('woff2');font-weight:100 800;font-display:swap}
+
+:root{
+  --bg:#0b0d10; --panel:#10141a; --panel-2:#0e1116; --line:#1d242d; --line-soft:#161c23;
+  --text:#e8ecf1; --muted:#98a2ad; --faint:#6b7682;
+  --acc:#3ee089; --acc-dim:rgba(62,224,137,.14);
+  --red:#ff6b5e; --red-dim:rgba(255,107,94,.12);
+  --amber:#f0b429; --amber-dim:rgba(240,180,41,.12);
+  --sans:'Satoshi',-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;
+  --mono:'JBMono',ui-monospace,'SF Mono',Menlo,monospace;
+}
+*{margin:0;padding:0;box-sizing:border-box}
+html{scroll-behavior:smooth}
+@media (prefers-reduced-motion:reduce){html{scroll-behavior:auto}}
+body{background:var(--bg);color:var(--text);font-family:var(--sans);font-weight:500;
+  font-size:16px;line-height:1.6;-webkit-font-smoothing:antialiased;overflow-x:clip}
+pre{max-width:100%}
+::selection{background:var(--acc);color:#07240f}
+a{color:inherit}
+.wrap{max-width:1160px;margin:0 auto;padding:0 24px}
+h1,h2,h3{font-weight:900;letter-spacing:-.02em;line-height:1.08}
+.mono{font-family:var(--mono)}
+.acc{color:var(--acc)}
+
+/* --- nav --- */
+nav{position:sticky;top:0;z-index:20;height:64px;background:rgba(11,13,16,.82);
+  backdrop-filter:blur(12px);-webkit-backdrop-filter:blur(12px);border-bottom:1px solid var(--line-soft)}
+nav .wrap{height:100%;display:flex;align-items:center;justify-content:space-between}
+.brand{display:flex;align-items:center;gap:2px;font-family:var(--mono);font-weight:700;
+  font-size:17px;text-decoration:none}
+.brand::after{content:"";width:9px;height:19px;margin-left:5px;background:var(--acc);
+  animation:blink 1.2s steps(1) infinite}
+@keyframes blink{50%{opacity:0}}
+@media (prefers-reduced-motion:reduce){.brand::after{animation:none}}
+.nav-links{display:flex;align-items:center;gap:26px;font-size:14.5px}
+.nav-links a{text-decoration:none;color:var(--muted);transition:color .2s}
+.nav-links a:hover{color:var(--text)}
+.btn-gh{display:inline-flex;align-items:center;gap:8px;background:var(--text);color:#0b0d10;
+  font-weight:700;font-size:14px;padding:8px 16px;border-radius:8px;text-decoration:none;
+  transition:transform .15s}
+.btn-gh:hover{color:#0b0d10}
+.btn-gh:active{transform:translateY(1px)}
+.btn-gh svg{width:16px;height:16px}
+
+/* --- hero --- */
+.hero{padding:72px 0 88px}
+.hero .wrap{display:grid;grid-template-columns:minmax(0,7fr) minmax(0,5fr);gap:56px;align-items:center}
+.hero h1{font-size:clamp(38px,5.2vw,62px);margin-bottom:20px}
+.hero p.sub{font-size:18px;color:var(--muted);max-width:44ch;margin-bottom:30px}
+.install{display:flex;align-items:stretch;gap:0;max-width:560px;border:1px solid var(--line);
+  border-radius:8px;overflow:hidden;background:var(--panel-2)}
+.install code{flex:1;font-family:var(--mono);font-size:13px;padding:13px 16px;color:var(--text);
+  white-space:nowrap;overflow-x:auto;scrollbar-width:none}
+.install code::-webkit-scrollbar{display:none}
+.install code .p{color:var(--faint)}
+.install button{border:none;border-left:1px solid var(--line);background:var(--panel);
+  color:var(--acc);font-family:var(--mono);font-size:12.5px;font-weight:700;padding:0 18px;
+  cursor:pointer;transition:background .2s}
+.install button:hover{background:var(--acc-dim)}
+.install button:active{transform:scale(.97)}
+.hero .also{margin-top:14px;font-size:14px;color:var(--faint)}
+.hero .also a{color:var(--muted);text-decoration:underline;text-underline-offset:3px}
+.hero .also a:hover{color:var(--acc)}
+
+/* --- demo card (real render, three leads) --- */
+.demo{border:1px solid var(--line);border-radius:14px;background:var(--panel);overflow:hidden;
+  box-shadow:0 24px 80px rgba(0,0,0,.45)}
+.demo-head{display:flex;align-items:center;justify-content:space-between;
+  padding:10px 16px;border-bottom:1px solid var(--line-soft);background:var(--panel-2)}
+.demo-head .t{font-family:var(--mono);font-size:11.5px;color:var(--faint)}
+.tabs{display:flex;gap:6px}
+.tabs button{font-family:var(--mono);font-size:12px;font-weight:500;color:var(--muted);
+  background:transparent;border:1px solid var(--line);border-radius:8px;padding:5px 12px;
+  cursor:pointer;transition:all .2s}
+.tabs button:hover{color:var(--text)}
+.tabs button[aria-selected="true"]{color:#07240f;background:var(--acc);border-color:var(--acc);font-weight:700}
+.demo-body{padding:20px 22px 18px;font-family:var(--mono);font-size:13px;line-height:1.75;min-height:262px}
+.demo-body .subj{color:var(--faint);padding-bottom:10px;margin-bottom:12px;border-bottom:1px dashed var(--line)}
+.demo-body .subj b{color:var(--text);font-weight:500}
+.bad{background:var(--red-dim);color:var(--red);border-radius:4px;padding:0 3px;font-weight:700}
+.gap-mark{background:var(--red-dim);border-bottom:2px solid var(--red);border-radius:2px;
+  display:inline-block;min-width:52px;height:1em;vertical-align:text-bottom}
+.demo-foot{display:flex;flex-wrap:wrap;gap:8px;padding:14px 22px 18px;border-top:1px solid var(--line-soft);min-height:58px}
+.chip{font-family:var(--mono);font-size:11px;font-weight:700;padding:3px 10px;border-radius:8px;letter-spacing:.02em}
+.chip.b{color:var(--red);background:var(--red-dim);border:1px solid rgba(255,107,94,.3)}
+.chip.w{color:var(--amber);background:var(--amber-dim);border:1px solid rgba(240,180,41,.3)}
+.chip.ok{color:var(--acc);background:var(--acc-dim);border:1px solid rgba(62,224,137,.3)}
+
+/* --- sections --- */
+section{padding:96px 0}
+section.tight{padding:72px 0}
+h2{font-size:clamp(28px,3.4vw,42px);margin-bottom:14px;max-width:24ch}
+.lede{color:var(--muted);font-size:17px;max-width:58ch;margin-bottom:44px}
+.lede a{color:var(--text);text-decoration:underline;text-underline-offset:3px}
+
+/* --- terminal --- */
+.term{border:1px solid var(--line);border-radius:14px;background:#0a0c0f;overflow:hidden;
+  box-shadow:0 30px 90px rgba(0,0,0,.5)}
+.term-bar{display:flex;align-items:center;gap:8px;padding:12px 16px;border-bottom:1px solid var(--line-soft)}
+.term-bar i{width:11px;height:11px;border-radius:50%;background:var(--line);display:block}
+.term-bar .cmd{margin-left:10px;font-family:var(--mono);font-size:12px;color:var(--faint)}
+.term pre{font-family:var(--mono);font-size:12.5px;line-height:1.62;padding:20px 22px;
+  overflow-x:auto;color:#c6cdd5}
+.term .tl{display:block}
+.term .r{color:var(--red)}
+.term .y{color:var(--amber)}
+.term .g{color:var(--acc)}
+.term .d{color:var(--faint)}
+.term .w{color:var(--text);font-weight:700}
+
+/* --- pipeline --- */
+.pipe{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:14px}
+.stage{position:relative;border:1px solid var(--line);border-radius:14px;background:var(--panel);
+  padding:22px 20px 20px}
+.stage .name{font-family:var(--mono);font-weight:700;font-size:15px;color:var(--acc);margin-bottom:8px}
+.stage p{font-size:13.5px;color:var(--muted);line-height:1.55;margin-bottom:14px;min-height:63px}
+.stage code{display:block;font-family:var(--mono);font-size:11px;color:var(--faint);
+  background:var(--panel-2);border:1px solid var(--line-soft);border-radius:8px;padding:8px 10px;
+  white-space:nowrap;overflow-x:auto;scrollbar-width:none}
+.stage code::-webkit-scrollbar{display:none}
+.stage:not(:last-child)::after{content:"→";position:absolute;right:-15px;top:26px;z-index:2;
+  color:var(--faint);font-family:var(--mono);font-size:15px}
+.exit-strip{display:flex;flex-wrap:wrap;gap:12px;margin-top:36px;align-items:center}
+.exit-strip .label{font-size:14px;color:var(--muted);margin-right:6px}
+.exit{display:flex;align-items:center;gap:9px;font-family:var(--mono);font-size:12.5px;
+  border:1px solid var(--line);border-radius:8px;padding:7px 13px;color:var(--muted)}
+.exit b{font-weight:700;font-size:13px}
+.exit.e0 b{color:var(--acc)} .exit.e1 b{color:var(--amber)} .exit.e2 b{color:var(--red)} .exit.e3 b{color:var(--faint)}
+
+/* --- catches bento --- */
+.bento{display:grid;grid-template-columns:repeat(12,minmax(0,1fr));gap:14px}
+.cell{border:1px solid var(--line);border-radius:14px;background:var(--panel);padding:24px}
+.cell.c7{grid-column:span 7}.cell.c5{grid-column:span 5}
+.cell.c4{grid-column:span 4}.cell.c8{grid-column:span 8}
+.cell h3{font-size:18px;margin-bottom:8px}
+.cell p{font-size:14px;color:var(--muted);line-height:1.6}
+.cell .ev{margin-top:16px;font-family:var(--mono);font-size:12.5px;line-height:1.9;
+  background:var(--panel-2);border:1px solid var(--line-soft);border-radius:8px;padding:12px 14px;
+  overflow-x:auto}
+.cell .ev .del{color:var(--red);background:var(--red-dim);border-radius:3px;padding:0 3px}
+.cell .ev .ins{color:var(--acc);background:var(--acc-dim);border-radius:3px;padding:0 3px}
+.cell .ev .dim{color:var(--faint)}
+.cell.tint-r{background:linear-gradient(150deg,rgba(255,107,94,.07),var(--panel) 55%)}
+.cell.tint-g{background:linear-gradient(150deg,rgba(62,224,137,.07),var(--panel) 55%)}
+.cell.tint-y{background:linear-gradient(150deg,rgba(240,180,41,.06),var(--panel) 55%)}
+
+/* --- rule wall --- */
+.wall{margin-top:52px}
+.wall .wall-h{display:flex;align-items:baseline;gap:14px;margin-bottom:18px}
+.wall .wall-h h3{font-size:17px}
+.wall .wall-h span{font-family:var(--mono);font-size:12px;color:var(--faint)}
+.rules{display:flex;flex-wrap:wrap;gap:8px;margin-bottom:26px}
+.rule{font-family:var(--mono);font-size:11.5px;font-weight:500;padding:5px 11px;border-radius:8px;
+  cursor:default;transition:all .15s}
+.rule.b{color:#ffb3ac;background:var(--red-dim);border:1px solid rgba(255,107,94,.22)}
+.rule.b:hover{border-color:rgba(255,107,94,.55)}
+.rule.w{color:#ffd98a;background:var(--amber-dim);border:1px solid rgba(240,180,41,.22)}
+.rule.w:hover{border-color:rgba(240,180,41,.55)}
+
+/* --- fixing --- */
+.fixgrid{display:grid;grid-template-columns:minmax(0,5fr) minmax(0,7fr);gap:48px;align-items:start}
+.fixgrid .refuse{margin-top:26px;border-top:1px solid var(--line);padding-top:22px}
+.fixgrid .refuse h3{font-size:16px;margin-bottom:12px}
+.fixgrid .refuse ul{list-style:none}
+.fixgrid .refuse li{font-size:14px;color:var(--muted);padding:7px 0;border-bottom:1px solid var(--line-soft)}
+.fixgrid .refuse li:last-child{border-bottom:none}
+.fixgrid .refuse li b{color:var(--text);font-weight:700}
+
+/* --- creds strip --- */
+.creds{border-top:1px solid var(--line-soft);border-bottom:1px solid var(--line-soft);
+  background:var(--panel-2)}
+.creds .wrap{display:grid;grid-template-columns:auto 1fr;gap:40px;align-items:center;padding-top:40px;padding-bottom:40px}
+.creds .k{font-family:var(--mono);font-size:13px;color:var(--acc);white-space:nowrap}
+.creds p{font-size:15px;color:var(--muted);max-width:72ch}
+.creds p b{color:var(--text);font-weight:700}
+
+/* --- footer --- */
+footer{padding:56px 0 64px}
+footer .wrap{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:20px}
+footer .l{font-family:var(--mono);font-size:13px;color:var(--faint)}
+footer .l b{color:var(--text);font-weight:700}
+footer .r{display:flex;gap:24px;font-size:14px}
+footer .r a{color:var(--muted);text-decoration:none}
+footer .r a:hover{color:var(--text)}
+
+/* --- reveal --- */
+.rv{opacity:0;transform:translateY(18px);transition:opacity .7s cubic-bezier(.16,1,.3,1),transform .7s cubic-bezier(.16,1,.3,1)}
+.rv.in{opacity:1;transform:none}
+@media (prefers-reduced-motion:reduce){.rv{opacity:1;transform:none;transition:none}}
+
+/* --- mobile --- */
+@media (max-width:1000px){
+  .hero .wrap{grid-template-columns:minmax(0,1fr);gap:44px}
+  .pipe{grid-template-columns:repeat(2,minmax(0,1fr))}
+  .stage:not(:last-child)::after{display:none}
+  .cell.c7,.cell.c5,.cell.c4,.cell.c8{grid-column:span 12}
+  .fixgrid{grid-template-columns:minmax(0,1fr)}
+  .creds .wrap{grid-template-columns:minmax(0,1fr);gap:14px}
+  .creds .k{white-space:normal}
+}
+@media (max-width:640px){
+  .hero{padding:48px 0 64px}
+  section{padding:64px 0}
+  .pipe{grid-template-columns:minmax(0,1fr)}
+  .nav-links a.txt{display:none}
+  .demo-body{min-height:0}
+  .stage p{min-height:0}
+  .demo-head{flex-wrap:wrap;gap:8px}
+}
+</style>
+</head>
+<body>
+
+<nav>
+  <div class="wrap">
+    <a class="brand" href="#">lastlook</a>
+    <div class="nav-links">
+      <a class="txt" href="#checks">Checks</a>
+      <a class="txt" href="#fixing">Fixing</a>
+      <a class="btn-gh" href="https://github.com/hernangimeno/lastlook">
+        <svg viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27s1.36.09 2 .27c1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.01 8.01 0 0 0 16 8c0-4.42-3.58-8-8-8Z"/></svg>
+        GitHub
+      </a>
+    </div>
+  </div>
+</nav>
+
+<header class="hero">
+  <div class="wrap">
+    <div>
+      <h1>See every message<br><span class="acc">before it sends.</span></h1>
+      <p class="sub">lastlook renders your cold campaign against every real lead, then runs
+        35 checks on the output, not the template.</p>
+      <div class="install">
+        <code id="pipcmd"><span class="p">$</span> pip install git+https://github.com/hernangimeno/lastlook</code>
+        <button id="copybtn" aria-label="Copy install command">copy</button>
+      </div>
+      <p class="also">Works with Instantly and HeyReach. Or read <a href="#checks">the 35 checks</a> first.</p>
+    </div>
+
+    <div class="demo rv" role="group" aria-label="One template rendered against three real leads">
+      <div class="demo-head">
+        <span class="t">step 1 / variant A, rendered per lead</span>
+        <div class="tabs" role="tablist" aria-label="Lead">
+          <button role="tab" aria-selected="true" data-lead="jane">Jane</button>
+          <button role="tab" aria-selected="false" data-lead="bob">BOB</button>
+          <button role="tab" aria-selected="false" data-lead="sam">Sam</button>
+        </div>
+      </div>
+      <div class="demo-body" id="demo-msg" role="tabpanel"></div>
+      <div class="demo-foot" id="demo-chips"></div>
+    </div>
+  </div>
+</header>
+
+<section class="tight">
+  <div class="wrap">
+    <h2>One command renders and judges the whole campaign.</h2>
+    <p class="lede">Every check is deterministic and runs on 100% of the rendered messages. You
+      get a verdict you can gate a launch on, and a recap that groups the fixes by the action
+      that clears them. This is the tool's own output:</p>
+    <div class="term rv">
+      <div class="term-bar"><i></i><i></i><i></i>
+        <span class="cmd">lastlook audit instantly --campaign "Q3 Outbound"</span>
+      </div>
+      <pre id="termout"><span class="tl">================================================================</span>
+<span class="tl"><span class="r">🔴 NOT CLEAR — 6 distinct BLOCKER(S), 6 WARNING(S)</span></span>
+<span class="tl">================================================================</span>
+<span class="tl">Rendered 9 messages. <span class="w">3 of 3 leads would send with a blocker.</span></span>
+<span class="tl"> </span>
+<span class="tl"><span class="d">check                 issues   leads   example</span></span>
+<span class="tl"><span class="r">🔴 BLANK_MERGE</span>              4       4   <span class="d">e.g. {{company}} resolved blank with no fallback — sends a gap</span></span>
+<span class="tl"><span class="r">🔴 EM_DASH</span>                  1       3   <span class="d">e.g. subject: banned dash “following up — Acme”</span></span>
+<span class="tl"><span class="r">🔴 CLAYGENT_APOLOGY</span>         1       1   <span class="d">e.g. body: AI/enrichment artifact “BOB, I couldn't find recent in</span></span>
+<span class="tl"><span class="y">🟡 LEGAL_SUFFIX</span>             2       4   <span class="d">e.g. subject: legal suffix in name “is Globex Inc.'s paid spend…”</span></span>
+<span class="tl"><span class="y">🟡 CASING</span>                   1       3   <span class="d">e.g. body: shouting name “BOB” (raw CRM casing)</span></span>
+<span class="tl"><span class="y">🟡 DOUBLE_PUNCT</span>             1       1   <span class="d">e.g. body: doubled punctuation “…building at Globex Inc.. We help</span></span>
+<span class="tl"><span class="y">🟡 AB_SIGNAL_COLLISION</span>      1       1   <span class="d">e.g. variants ['1A', '1B'] share signal “overspend” in step 1</span></span>
+<span class="tl"><span class="y">🟡 THREAD_BREAK</span>             1       1   <span class="d">e.g. follow-up sets its own subject “following up — {{company}}”</span></span>
+<span class="tl">================================================================</span>
+<span class="tl"> </span>
+<span class="tl">================================================================</span>
+<span class="tl"><span class="w">START HERE → Clean the raw values in Clay/CRM  (~40 min)</span></span>
+<span class="tl">================================================================</span>
+<span class="tl">1. [MUST] Clean the raw values in Clay/CRM — 3 leads</span>
+<span class="tl"><span class="d">      · Title-case the raw CRM values</span></span>
+<span class="tl"><span class="d">      · Blank the failed AI-enrichment values</span></span>
+<span class="tl"><span class="d">      · Strip legal suffixes from company names</span></span>
+<span class="tl">2. [MUST] Edit the campaign copy — 3 leads</span>
+<span class="tl"><span class="d">      ~2 min — step 2 variant 2A</span></span>
+<span class="tl">3. [MUST] Add fallbacks, or enrich the blank fields</span>
+<span class="tl"><span class="d">      · Add fallbacks or enrich the blank fields</span></span>
+<span class="tl"><span class="d">      · Fix punctuation at the merge seam</span></span>
+<span class="tl"><span class="d">      ~20 min — step 1 variant 1A, step 1 variant 1B, step 2 variant 2A</span></span>
+<span class="tl">4. [then] Fix the campaign settings — 2 places</span>
+<span class="tl"><span class="d">      · Give colliding variants distinct signals</span></span>
+<span class="tl"><span class="d">      · Clear the follow-up subject so it threads</span></span>
+<span class="tl"><span class="d">      ~7 min — step 1 variant 1A+1B, step 2 variant 2A</span></span>
+<span class="tl"> </span>
+<span class="tl"><span class="g">Clean: 27 of 35 checks found nothing.</span></span>
+<span class="tl">4 fixes, roughly 1.1h total.</span>
+<span class="tl"> </span>
+<span class="tl"><span class="g">lastlook can fix 2 of these for you (DOUBLE_PUNCT, EM_DASH).</span></span>
+<span class="tl"><span class="d">    lastlook fix campaign.json            # show the diff, write nothing</span></span>
+<span class="tl"><span class="d">    lastlook fix campaign.json --apply    # push it to the platform</span></span></pre>
+    </div>
+  </div>
+</section>
+
+<section class="tight">
+  <div class="wrap">
+    <h2>Four stages, with a plain file between them.</h2>
+    <p class="lede">Run <span class="mono">audit</span> for the whole thing in one pass, or keep
+      the stages separate when you want to inspect what flows between them. Everything after the
+      adapter is platform-agnostic: adding a platform is one file.</p>
+    <div class="pipe rv">
+      <div class="stage">
+        <div class="name">pull</div>
+        <p>Fetch the live campaign and its leads into one normalized JSON. Nothing is written back.</p>
+        <code>lastlook pull instantly --campaign "Q3" -o c.json</code>
+      </div>
+      <div class="stage">
+        <div class="name">render</div>
+        <p>Render every variant against every lead. Merge tags, fallbacks, spintax and conditionals resolve exactly as the platform would send them.</p>
+        <code>lastlook render c.json -o r.jsonl</code>
+      </div>
+      <div class="stage">
+        <div class="name">check</div>
+        <p>Run 35 rules over the rendered output and the lead list. You get a verdict, a recap and a findings CSV.</p>
+        <code>lastlook check r.jsonl --campaign-json c.json</code>
+      </div>
+      <div class="stage">
+        <div class="name">fix</div>
+        <p>See a unified diff of the mechanical fixes. It writes nothing until you type the campaign's name.</p>
+        <code>lastlook fix c.json --apply</code>
+      </div>
+    </div>
+    <div class="exit-strip rv">
+      <span class="label">Exit codes you can gate a send on:</span>
+      <span class="exit e0"><b>0</b> clear</span>
+      <span class="exit e1"><b>1</b> warnings only</span>
+      <span class="exit e2"><b>2</b> blockers, do not launch</span>
+      <span class="exit e3"><b>3</b> tool error, nothing was checked</span>
+    </div>
+  </div>
+</section>
+
+<section id="checks">
+  <div class="wrap">
+    <h2>It catches the bugs that only exist after the merge.</h2>
+    <p class="lede">Your sequence builder shows the template. Your prospect gets the render. The
+      bugs that burn a lead live in the gap between those two, and no campaign UI shows you that gap.</p>
+
+    <div class="bento">
+      <div class="cell c7 tint-r rv">
+        <h3>Merge failures</h3>
+        <p>It catches blank fields, tags with no value source, literal tags shipping, and merge
+          syntax the renderer can't parse. A campaign that renders zero messages is an error, never a pass.</p>
+        <div class="ev">Hi <span class="del">&nbsp;&nbsp;</span>, noticed <span class="del">{{company}}</span> is scaling ads.<br>
+          <span class="dim">BLANK_MERGE · UNRESOLVED_VAR · UNDEFINED_TAG · UNKNOWN_SYNTAX</span></div>
+      </div>
+      <div class="cell c5 rv">
+        <h3>AI enrichment leaking</h3>
+        <p>Your enrichment column wrote an apology, and it's sitting mid-sentence in a live email.</p>
+        <div class="ev"><span class="del">I couldn't find recent information about this company</span>. Thought it was worth a second note.</div>
+      </div>
+      <div class="cell c4 rv">
+        <h3>Raw CRM values</h3>
+        <p>It flags shouting names, legal suffixes, full names in greetings, mojibake and placeholder names.</p>
+        <div class="ev">Hi <span class="del">BOB</span>, · at <span class="del">Acme Inc.</span> · Hi <span class="del">John Smith</span>,</div>
+      </div>
+      <div class="cell c8 tint-y rv">
+        <h3>The lead list itself</h3>
+        <p>The lead check looks for duplicates, role inboxes, invalid addresses, free-mail in a
+          B2B list, and five colleagues getting the same message. These are the only failures that
+          burn the sending domain instead of one message.</p>
+        <div class="ev"><span class="del">info@acme.com</span> · <span class="del">jane@acme,com</span> · jane@acme.com <span class="dim">appears twice</span> · <span class="dim">7 contacts at one domain</span></div>
+      </div>
+      <div class="cell c5 rv">
+        <h3>Copy hygiene</h3>
+        <p>It finds invisible characters pasted from Docs, spam vocabulary, editing scaffolding,
+          and any banned terms you supply. A previous client's name in a recycled template blocks the launch.</p>
+        <div class="ev"><span class="del">U+200B</span> inside a word · <span class="del">[insert case study]</span> · <span class="del">lorem ipsum</span></div>
+      </div>
+      <div class="cell c7 tint-g rv">
+        <h3>Structure</h3>
+        <p>It reads the sequence as a whole: duplicate A/B variants, shared opening lines, a
+          missing first-touch subject, follow-ups that break threading, steps with no gap between
+          them. The near-misses get tested too: an empty follow-up subject is how threading works,
+          so lastlook says nothing.</p>
+        <div class="ev"><span class="dim">variants 1A / 1B are the same message, the A/B test measures nothing</span></div>
+      </div>
+    </div>
+
+    <div class="wall rv">
+      <div class="wall-h"><h3>The full catalog</h3><span>run lastlook rules for the live list</span></div>
+      <div class="rules" aria-label="Blocker rules">
+        <span class="rule b">DATA_GAP</span><span class="rule b">BLANK_MERGE</span><span class="rule b">UNDEFINED_TAG</span><span class="rule b">UNRESOLVED_VAR</span><span class="rule b">UNKNOWN_SYNTAX</span><span class="rule b">DANGLING_TEXT</span><span class="rule b">CLAYGENT_APOLOGY</span><span class="rule b">EM_DASH</span><span class="rule b">LENGTH</span><span class="rule b">PLACEHOLDER_TEXT</span><span class="rule b">FORBIDDEN_TERM</span><span class="rule b">VARIANT_NOT_DISTINCT</span><span class="rule b">EMPTY_SUBJECT</span><span class="rule b">LEAD_NO_EMAIL</span><span class="rule b">LEAD_INVALID_EMAIL</span><span class="rule b">LEAD_DUPLICATE</span><span class="rule b">LEAD_ROLE_ADDRESS</span><span class="rule b">BROKEN_HANDOFF</span><span class="rule b">STEPS_NOT_PACED</span>
+      </div>
+      <div class="rules" aria-label="Warning rules">
+        <span class="rule w">CASING</span><span class="rule w">LEGAL_SUFFIX</span><span class="rule w">DOUBLE_PUNCT</span><span class="rule w">FULL_NAME_GREETING</span><span class="rule w">NAME_QUALITY</span><span class="rule w">COMPANY_QUALITY</span><span class="rule w">INVISIBLE_CHARS</span><span class="rule w">SPAM_VOCAB</span><span class="rule w">LINK_IN_FIRST_TOUCH</span><span class="rule w">LINK_HEALTH</span><span class="rule w">SUBJECT_STYLE</span><span class="rule w">THREAD_BREAK</span><span class="rule w">SHARED_OPENER</span><span class="rule w">AB_SIGNAL_COLLISION</span><span class="rule w">LEAD_FREEMAIL</span><span class="rule w">LEAD_OVER_CONTACT</span>
+      </div>
+      <p style="font-size:14px;color:var(--faint)">Every rule ships with a test that fires it and a
+        near-miss that must stay quiet. "we test your pipeline" doesn't trip the placeholder rule;
+        a bare TEST does. An en dash inside a number range is correct typography and passes.</p>
+    </div>
+  </div>
+</section>
+
+<section id="fixing" class="tight">
+  <div class="wrap">
+    <div class="fixgrid">
+      <div>
+        <h2>Mechanical defects get a diff. Judgement stays yours.</h2>
+        <p class="lede" style="margin-bottom:0">Template fixes are deterministic text edits. You
+          see them as a unified diff, and nothing gets written back until you type the campaign's
+          name. Bad lead values export as a CSV of current and suggested values, ready for whatever
+          owns your data.</p>
+        <div class="refuse">
+          <h3>What it refuses to auto-fix, on purpose</h3>
+          <ul>
+            <li><b>Spam wording.</b> Rewording is a judgement about the offer, not a typo.</li>
+            <li><b>Blank merges.</b> The fix is a fallback or enrichment, both editorial.</li>
+            <li><b>Placeholder text.</b> Deleting it leaves a hole, not a fix.</li>
+            <li><b>Duplicate variants.</b> The fix is writing a different message.</li>
+            <li><b>Pacing.</b> The gap between steps is a settings call with money riding on it.</li>
+          </ul>
+        </div>
+      </div>
+      <div class="term rv">
+        <div class="term-bar"><i></i><i></i><i></i>
+          <span class="cmd">lastlook fix campaign.json</span>
+        </div>
+        <pre><span class="tl">step 2 / variant 2A / subject   <span class="d">[prose_dash]</span></span>
+<span class="tl">  @@ -1 +1 @@</span>
+<span class="tl">  <span class="r">-following up — {{company}}</span></span>
+<span class="tl">  <span class="g">+following up - {{company}}</span></span>
+<span class="tl"> </span>
+<span class="tl">2 data value(s) to correct -> lastlook.fixes.csv</span>
+<span class="tl">    company_name  <span class="r">'Globex Inc.'</span> -> <span class="g">'Globex'</span></span>
+<span class="tl">    first_name    <span class="r">'BOB'</span>         -> <span class="g">'Bob'</span></span>
+<span class="tl"> </span>
+<span class="tl">1 template edit(s). <span class="w">Nothing written.</span></span>
+<span class="tl"><span class="d">Re-run with --apply to push them to the platform.</span></span></pre>
+      </div>
+    </div>
+  </div>
+</section>
+
+<div class="creds">
+  <div class="wrap">
+    <span class="k">$INSTANTLY_API_KEY · .env · --key</span>
+    <p>Your platform's own API key is all it needs. <b>No account, no signup, no server.</b> In a
+      terminal with no key set, it asks once, hides what you type, and offers to save it to a
+      chmod-600 .env. In cron or CI it never prompts: a missing or rejected key gets a plain
+      sentence and exit 3, never a hung job and never a pass. The key is never written anywhere else.</p>
+  </div>
+</div>
+
+<footer>
+  <div class="wrap">
+    <span class="l"><b>lastlook</b> · MIT license</span>
+    <div class="r">
+      <a href="https://github.com/hernangimeno/lastlook">Source</a>
+      <a href="https://github.com/hernangimeno/lastlook/issues">Issues</a>
+      <a href="https://github.com/hernangimeno/lastlook#writing-an-adapter">Write an adapter</a>
+    </div>
+  </div>
+</footer>
+
+<script>
+/* Demo: one template, three real leads from the test fixture. */
+const LEADS = {
+  jane: {
+    subj: `is Acme's paid spend mapping to pipeline?`,
+    body: `Hi Jane,<br><br>Noticed Acme is scaling ads. Most teams at Series A stage hit the same wall.<br><br>Worth a quick chat?<br><br>Hernán`,
+    chips: `<span class="chip ok">CLEAR</span>`
+  },
+  bob: {
+    subj: `is <span class="bad">Globex Inc.</span>'s paid spend mapping to pipeline?`,
+    body: `Hi <span class="bad">BOB</span>,<br><br>Noticed <span class="bad">Globex Inc.</span> is scaling ads. Most teams at Seed stage hit the same wall.<br><br>Worth a quick chat?<br><br>Hernán`,
+    chips: `<span class="chip w">CASING</span><span class="chip w">LEGAL_SUFFIX</span>`
+  },
+  sam: {
+    subj: `is <span class="gap-mark" title="blank merge"></span>'s paid spend mapping to pipeline?`,
+    body: `Hi Sam,<br><br>Noticed <span class="gap-mark" title="blank merge"></span> is scaling ads. Most teams at Series B stage hit the same wall.<br><br>Worth a quick chat?<br><br>Hernán`,
+    chips: `<span class="chip b">BLANK_MERGE</span>`
+  }
+};
+const msg = document.getElementById('demo-msg');
+const chips = document.getElementById('demo-chips');
+const tabs = document.querySelectorAll('.tabs button');
+function show(lead){
+  const d = LEADS[lead];
+  msg.innerHTML = `<div class="subj"><span>subject:</span> <b>${d.subj}</b></div>${d.body}`;
+  chips.innerHTML = d.chips;
+  tabs.forEach(t => t.setAttribute('aria-selected', String(t.dataset.lead === lead)));
+}
+tabs.forEach(t => t.addEventListener('click', () => show(t.dataset.lead)));
+show('jane');
+
+/* Copy install command. */
+const btn = document.getElementById('copybtn');
+btn.addEventListener('click', async () => {
+  try {
+    await navigator.clipboard.writeText('pip install git+https://github.com/hernangimeno/lastlook');
+    btn.textContent = 'copied';
+  } catch { btn.textContent = 'select it'; }
+  setTimeout(() => { btn.textContent = 'copy'; }, 1600);
+});
+
+/* Scroll reveals + terminal line stagger (skipped under reduced motion). */
+const reduce = matchMedia('(prefers-reduced-motion: reduce)').matches;
+if (!reduce) {
+  const io = new IntersectionObserver(es => es.forEach(e => {
+    if (e.isIntersecting) { e.target.classList.add('in'); io.unobserve(e.target); }
+  }), { threshold: 0.15 });
+  document.querySelectorAll('.rv').forEach(el => io.observe(el));
+
+  const lines = document.querySelectorAll('#termout .tl');
+  lines.forEach(l => { l.style.opacity = '0'; l.style.transition = 'opacity .3s'; });
+  const tio = new IntersectionObserver(es => es.forEach(e => {
+    if (!e.isIntersecting) return;
+    tio.disconnect();
+    lines.forEach((l, i) => setTimeout(() => { l.style.opacity = '1'; }, 40 * i));
+  }), { threshold: 0.2 });
+  const term = document.getElementById('termout');
+  if (term) tio.observe(term);
+} else {
+  document.querySelectorAll('.rv').forEach(el => el.classList.add('in'));
+}
+</script>
+</body>
+</html>
