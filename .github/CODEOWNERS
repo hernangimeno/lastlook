@@ -1,0 +1,9 @@
+# Every file in this repo is owned by @hernangimeno.
+#
+# With "Require review from Code Owners" on the main branch, no pull request can
+# merge without his approval. That is the point: this tool writes to live cold
+# campaigns, so an unreviewed change can damage a stranger's sending domain.
+#
+# Direct pushes by the owner still work — branch protection deliberately does not
+# apply to admins, so maintenance does not need a PR round-trip with itself.
+* @hernangimeno
