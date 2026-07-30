@@ -190,7 +190,8 @@ def _key_for(platform, explicit):
              f"       Get one:  {WHERE_TO_GET[platform]}\n"
              f"       Then either:\n"
              f"         export {env}=...        (or put it in a .env file here)\n"
-             f"         lastlook ... --key ...   (note: this lands in your shell history)")
+             f"         lastlook ... --key ...   (visible in your shell history AND to "
+             f"anyone who can run ps)")
     return key.strip().strip("\"'")
 
 
