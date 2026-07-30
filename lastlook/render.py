@@ -27,9 +27,16 @@ import json
 import re
 import sys
 
-# {{#if var}}...{{else}}...{{/if}}  — non-greedy, no nesting (scoped to what we use)
+# {{#if var}}...{{else}}...{{/if}}. The tempered dot ((?!\{\{#if).) means a match
+# can never contain another opening {{#if}}, so this always matches an INNERMOST
+# conditional; render_conditionals loops until stable, peeling nesting outward.
+# A plain non-greedy (.*?) paired an outer {{#if}} with the first {{/if}} it saw,
+# which on a falsy outer var leaked the tail of the block plus an orphan {{/if}}.
 COND_RE = re.compile(
-    r"\{\{#if\s+([\w.]+)\s*\}\}(.*?)(?:\{\{else\}\}(.*?))?\{\{/if\}\}",
+    r"\{\{#if\s+([\w.]+)\s*\}\}"
+    r"((?:(?!\{\{#if).)*?)"
+    r"(?:\{\{else\}\}((?:(?!\{\{#if).)*?))?"
+    r"\{\{/if\}\}",
     re.DOTALL,
 )
 # {{RANDOM | option A | option B | ...}} — Instantly picks one option at send time.
@@ -210,9 +217,30 @@ def render_vars(text, vars_map, fallbacks):
     return rendered, blanked
 
 
+def _split_top_level(s):
+    """Split on the pipes that separate RANDOM options — not the pipe inside an
+    inner {{company | fallback}} tag. A naive split("|") broke such an option
+    into fragments ("Hi {{company", "your team}}") that shipped literally AND
+    matched no leftover-tag pattern, so the defect passed the checker silently."""
+    parts, cur, depth, i, n = [], [], 0, 0, len(s)
+    while i < n:
+        two = s[i:i + 2]
+        if two == "{{":
+            depth += 1; cur.append(two); i += 2; continue
+        if two == "}}" and depth:
+            depth -= 1; cur.append(two); i += 2; continue
+        if s[i] == "|" and depth == 0:
+            parts.append("".join(cur)); cur = []
+        else:
+            cur.append(s[i])
+        i += 1
+    parts.append("".join(cur))
+    return parts
+
+
 def render_random(text, seed):
     def repl(m):
-        options = [o.strip() for o in m.group(1).split("|")]
+        options = [o.strip() for o in _split_top_level(m.group(1))]
         return _stable_choice(options, seed + "R" + m.group(1))
 
     return RANDOM_RE.sub(repl, text)

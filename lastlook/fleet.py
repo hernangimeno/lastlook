@@ -47,7 +47,9 @@ def scan_one(entry, max_leads):
     # UNDEFINED_TAG lives in the template, so it hits EVERY lead on that step —
     # not the 1 "(campaign-level)" pseudo-lead. Count its impact as the full audience.
     template_level = any(i["check"] == "UNDEFINED_TAG" for i in blk)
-    per_lead = {(f["lead_id"], f["variant"]) for f in findings
+    # Distinct leads, not (lead, variant) pairs — same counting rule as
+    # check.verdict_block, and for the same reason: a lead receives one variant.
+    per_lead = {f["lead_id"] for f in findings
                 if f["severity"] == BLOCKER and f["lead_id"] != "(campaign-level)"}
     leads_broken = nleads if template_level else len(per_lead)
     top = ""

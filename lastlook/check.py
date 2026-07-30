@@ -365,8 +365,20 @@ def chk_link_first_touch(row):
     return out
 
 
+def _term_pat(w):
+    """One term, with a word boundary only where the term's edge IS a word char.
+    \\b between "%" and a following space never matches, so a blanket \\b(...)\\b
+    made "100%" and any other term ending in punctuation unmatchable in prose."""
+    p = re.escape(w)
+    if w[:1].isalnum() or w[:1] == "_":
+        p = r"\b" + p
+    if w[-1:].isalnum() or w[-1:] == "_":
+        p += r"\b"
+    return p
+
+
 def make_spam_check(words):
-    pat = re.compile(r"\b(" + "|".join(re.escape(w) for w in sorted(words, key=len, reverse=True)) + r")\b",
+    pat = re.compile("(" + "|".join(_term_pat(w) for w in sorted(words, key=len, reverse=True)) + ")",
                      re.IGNORECASE) if words else None
 
     def chk_spam(row):
@@ -623,7 +635,7 @@ def chk_forbidden_terms(campaign_json, terms):
     out = []
     if not campaign_json or not terms:
         return out
-    pat = re.compile(r"\b(" + "|".join(re.escape(t) for t in sorted(terms, key=len, reverse=True)) + r")\b",
+    pat = re.compile("(" + "|".join(_term_pat(t) for t in sorted(terms, key=len, reverse=True)) + ")",
                      re.IGNORECASE)
     for step, _chan, vid, field, raw in _template_texts(campaign_json):
         # Blank out merge tags first. A variable NAMED {{competitor}} is
@@ -1123,7 +1135,11 @@ def verdict_block(rows, findings):
     # UNDEFINED_TAG is in the template -> hits every lead on that step (not the 1
     # campaign-level pseudo-lead). Count it as the full audience.
     template_blocker = any(f["check"] == "UNDEFINED_TAG" for f in findings if f["severity"] == BLOCKER)
-    per_lead = {(f["lead_id"], f["variant"]) for f in findings
+    # DISTINCT leads, not (lead, variant) pairs: every variant is rendered against
+    # every lead, so a blocker in two variants counted the same lead twice and the
+    # line read "880 of 440 leads". A lead gets ONE variant at send time; distinct
+    # leads is the honest worst case.
+    per_lead = {f["lead_id"] for f in findings
                 if f["severity"] == BLOCKER and f["lead_id"] != "(campaign-level)"}
     broken = n_leads if template_blocker else len(per_lead)
 

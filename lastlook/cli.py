@@ -32,6 +32,10 @@ def _explain(exc):
     """
     import httpx
 
+    if isinstance(exc, LookupError):
+        # Adapters raise this with a message already written for a human
+        # (campaign not found, list not found). No prefix, no traceback.
+        return str(exc)
     if isinstance(exc, httpx.HTTPStatusError):
         code = exc.response.status_code
         host = exc.request.url.host
@@ -168,7 +172,12 @@ def _offer_to_save(platform, key):
 
 
 def _key_for(platform, explicit):
-    env = ENV_VAR[platform]
+    env = ENV_VAR.get(platform)
+    if env is None:
+        # A hand-written campaign JSON can carry any platform string; without
+        # this guard it surfaced as a raw KeyError instead of a sentence.
+        _die(f"unknown platform {platform!r} — lastlook has API keys for: "
+             f"{', '.join(ENV_VAR)}")
     key = explicit or os.environ.get(env)
     if not key:
         key = _prompt_for_key(platform)

@@ -67,7 +67,11 @@ def resolve_campaign(cx, campaign):
         starting_after = data.get("next_starting_after")
         if not starting_after or not items:
             break
-    sys.exit(f"ERROR: no campaign matching id or name {campaign!r}")
+    # LookupError, not sys.exit: sys.exit(str) exits 1, which the CLI documents
+    # as "warnings only" — a typo'd campaign name read as a passing campaign.
+    # The CLI boundary turns this into a plain sentence and exit 3.
+    raise LookupError(f"no campaign matching id or name {campaign!r} on this account "
+                      f"— check the name, and which account the key belongs to")
 
 
 def extract_steps(campaign):
