@@ -12,9 +12,7 @@ Instantly schema (verified against developer.instantly.ai):
 
 Auth: Authorization: Bearer <raw key>. A User-Agent header is REQUIRED
 (Cloudflare blocks requests without one). Key resolution order:
-  --api-key  >  $INSTANTLY_API_KEY
-Per-client keys live in Airtable (Clients table). Fetch the key with the
-Airtable MCP and pass it via --api-key, or export INSTANTLY_API_KEY.
+  --api-key  >  $INSTANTLY_API_KEY  >  .env  >  prompt
 
 Usage:
     python3 pull_instantly.py --campaign "Acme Q3 Outbound" --out preflight_acme.json
@@ -30,7 +28,7 @@ import sys
 import httpx
 
 BASE = "https://api.instantly.ai/api/v2"
-UA = "campaign-preflight/1.0 (+example.com)"
+UA = "lastlook/0.1 (+https://github.com/hernangimeno/lastlook)"
 PAGE = 100
 
 
@@ -98,8 +96,8 @@ def extract_steps(campaign):
                 "limits": {},                              # email has no hard caps
                 "variants": variants,
                 # Instantly puts `delay` on every step including the last (where
-                # it does nothing). Verified live 2026-07-30 against three Initech
-                # campaigns: unit is "days" and the value is the wait BEFORE the
+                # it does nothing). Verified live 2026-07-30 against three
+                # multi-step campaigns: unit is "days" and the value is the wait BEFORE the
                 # next step fires, so the gap between step N and N+1 is step N's
                 # delay. Normalized to days so the checks never parse units.
                 "delay_days": _delay_days(st),
@@ -189,8 +187,7 @@ def main():
     args = ap.parse_args()
 
     if not args.api_key:
-        sys.exit("ERROR: no API key. Pass --api-key or set INSTANTLY_API_KEY "
-                 "(per-client key lives in the Airtable Clients table).")
+        sys.exit("ERROR: no API key. Pass --api-key or set INSTANTLY_API_KEY.")
 
     normalized = pull(args.api_key, args.campaign, args.max_leads)
     cid = normalized["campaign"]["id"]

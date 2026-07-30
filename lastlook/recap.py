@@ -182,7 +182,8 @@ def _place(iss):
     return f"step {step} variant {variant}"
 
 
-def render(issues, max_items=5, rules_run=None, campaign_path=None):
+def render(issues, max_items=5, rules_run=None, campaign_path=None, skipped=None,
+           fixable_rules=None):
     """The recap block, as a string.
 
     Shaped for someone who has to ACT on it, not study it:
@@ -190,6 +191,8 @@ def render(issues, max_items=5, rules_run=None, campaign_path=None):
       - work is numbered, one bounded action per line, capped at five
       - every line carries a concrete minute estimate
       - what is already clean is stated, not left implied
+      - and what did NOT run is stated too: `rules_run` is the set that actually
+        ran, never the catalog, so the count can never overstate the coverage
       - it ends with one action that takes under two minutes
 
     Returns the all-clear block when there is nothing to fix.
@@ -201,6 +204,7 @@ def render(issues, max_items=5, rules_run=None, campaign_path=None):
         out = ["", "=" * 64, "Nothing to fix. Launch it.", "=" * 64]
         if total_rules:
             out.append(f"{total_rules} checks ran, none fired.")
+        out.extend(_skipped_lines(skipped))
         return "\n".join(out)
 
     blockers = [g for g in ranked if g["severity"] == BLOCKER]
@@ -240,13 +244,19 @@ def render(issues, max_items=5, rules_run=None, campaign_path=None):
     if total_rules:
         fired = len({r for g in ranked for r in g["rules"]})
         lines.append(f"Clean: {total_rules - fired} of {total_rules} checks found nothing.")
+    lines.extend(_skipped_lines(skipped))
     plural = "fix" if len(ranked) == 1 else "fixes"
     lines.append(f"{len(ranked)} {plural}, roughly {_fmt_minutes(total)} total."
                  + ("" if blockers else " None of it blocks launch."))
 
     # Tell the user what they do NOT have to do by hand.
     fired = {r for g in ranked for r in g["rules"]}
-    tpl = fired & AUTOFIX_TEMPLATE
+    # fixable_rules is what `lastlook fix` would ACTUALLY change, planned against
+    # the campaign. Promising a fix from the finding code alone over-promised: a
+    # doubled period created at the merge seam is a defect in the rendered output
+    # with nothing in the template to edit, so `fix` found one edit where the
+    # recap had advertised two.
+    tpl = (fired & AUTOFIX_TEMPLATE) if fixable_rules is None else (fired & set(fixable_rules))
     dat = fired & AUTOFIX_DATA
     if tpl or dat:
         lines.append("")
@@ -278,3 +288,22 @@ def _fmt_minutes(mins):
     if mins < 60:
         return f"{mins} min"
     return f"{mins / 60.0:.1f}h".replace(".0h", "h")
+
+
+def _skipped_lines(skipped):
+    """State every check that did not run, grouped by why.
+
+    Silence here reads as coverage. A user who narrows the run with --only, or
+    forgets --campaign-json, should see the hole rather than a green verdict over
+    it."""
+    if not skipped:
+        return []
+    by_reason = {}
+    for rule, reason in sorted(skipped.items()):
+        by_reason.setdefault(reason, []).append(rule)
+    out = [f"NOT CHECKED: {len(skipped)} rule(s) did not run."]
+    for reason, rules in sorted(by_reason.items()):
+        shown = ", ".join(rules[:6])
+        more = f" +{len(rules) - 6} more" if len(rules) > 6 else ""
+        out.append(f"    {reason}: {shown}{more}")
+    return out

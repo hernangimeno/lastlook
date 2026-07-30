@@ -629,11 +629,36 @@ def chk_placeholders(campaign_json):
     return out
 
 
-def chk_forbidden_terms(campaign_json, terms):
+def chk_forbidden_terms(campaign_json, terms, rows=None):
     """Caller-supplied banned words. The real use is a previous client's or a
-    competitor's name surviving into a recycled template."""
+    competitor's name surviving into a recycled template.
+
+    Scans the templates AND the rendered messages. Template-only was the original
+    behaviour and it missed the harder half: a banned name arriving through lead
+    data or AI enrichment never appears in the template, only in what sends —
+    which is the whole premise of this tool."""
     out = []
-    if not campaign_json or not terms:
+    if not terms:
+        return out
+    if rows:
+        pat = re.compile("(" + "|".join(_term_pat(t) for t in sorted(terms, key=len, reverse=True)) + ")",
+                         re.IGNORECASE)
+        for r in rows:
+            for field in ("subject", "body"):
+                m = pat.search(r.get(field) or "")
+                if not m:
+                    continue
+                # Skip anything the template already carries: the template loop
+                # below reports that once, rather than once per lead.
+                out.append({
+                    "lead_id": r.get("lead_id"), "lead_email": r.get("lead_email"),
+                    "step": r.get("step"), "variant": r.get("variant"),
+                    "channel": r.get("channel"), "check": "FORBIDDEN_TERM",
+                    "severity": BLOCKER,
+                    "evidence": f"{field}: banned term \u201c{m.group()}\u201d in the rendered message",
+                    "signature": f"rendered:{field}:{m.group().lower()}",
+                })
+    if not campaign_json:
         return out
     pat = re.compile("(" + "|".join(_term_pat(t) for t in sorted(terms, key=len, reverse=True)) + ")",
                      re.IGNORECASE)
@@ -664,7 +689,7 @@ def chk_variant_integrity(campaign_json):
 
     Duplication means IDENTICAL after merge tags and whitespace are normalized
     away — no similarity threshold. A first pass flagged anything ≥95% alike,
-    which caught a live Initech pair differing only in "I've already built a pitch
+    which caught a live A/B pair differing only in "I've already built a pitch
     deck" vs "I can build a pitch deck in minutes": a textbook single-variable
     test, i.e. exactly the behaviour you want. Raising the bar to 99% just moved
     the arbitrariness, since the ratio depends on body length rather than on
@@ -911,7 +936,7 @@ def classify_company(value):
     low = v.lower().strip(". ")
     if low in COMPANY_PLACEHOLDERS:
         return "placeholder, not a real company name"
-    # Only explicit URLs — NOT bare branded names like Customer.io / Vue.ai / Abacus.AI,
+    # Only explicit URLs — NOT bare branded names like Initech.io / Acme.ai / Globex.AI,
     # which legitimately carry a .io/.ai/.com suffix and are the real company name.
     if re.search(r"https?://|www\.|@|/", v):
         return "looks like a URL / email"
@@ -1044,6 +1069,42 @@ def load_spam_words(path):
     return words
 
 
+# Rules that read the campaign JSON, not the rendered rows. Without --campaign-json
+# they cannot run at all. They used to silently not run while the recap still said
+# "35 checks ran" — a campaign looking clean because nobody looked.
+CAMPAIGN_ONLY_RULES = {
+    "NAME_QUALITY", "COMPANY_QUALITY", "LEGAL_SUFFIX", "UNDEFINED_TAG",
+    "LEAD_DUPLICATE", "LEAD_ROLE_ADDRESS", "LEAD_INVALID_EMAIL", "LEAD_FREEMAIL",
+    "LEAD_NO_EMAIL", "LEAD_OVER_CONTACT", "PLACEHOLDER_TEXT",
+    "VARIANT_NOT_DISTINCT", "SHARED_OPENER", "EMPTY_SUBJECT", "SUBJECT_STYLE",
+    "THREAD_BREAK", "STEPS_NOT_PACED", "BROKEN_HANDOFF",
+}
+# Rules nothing can run without an extra opt-in.
+OPT_IN_RULES = {"LINK_HEALTH": "--check-links", "FORBIDDEN_TERM": "--forbidden-terms"}
+
+
+def rules_actually_run(enabled=None, campaign_json=None, check_links=False,
+                       forbidden_terms=None):
+    """The rules this invocation genuinely evaluated, and why the rest sat out.
+
+    Returns (ran, skipped) where skipped maps rule name -> reason. The recap
+    reports from this instead of from the full catalog: a count of checks that
+    did not happen is the same lie as a missed defect, and harder to notice."""
+    ran, skipped = set(), {}
+    for name in RULES:
+        if enabled is not None and name not in enabled:
+            skipped[name] = "excluded by --only/--disable"
+        elif name in CAMPAIGN_ONLY_RULES and not campaign_json:
+            skipped[name] = "needs --campaign-json"
+        elif name == "LINK_HEALTH" and not check_links:
+            skipped[name] = "needs --check-links"
+        elif name == "FORBIDDEN_TERM" and not forbidden_terms:
+            skipped[name] = "needs --forbidden-terms"
+        else:
+            ran.add(name)
+    return ran, skipped
+
+
 def run(rows, spam_words, campaign_json=None, instantly_key=None, check_links=False,
         forbidden_terms=None, enabled=None):
     checks = PER_ROW_CHECKS + [make_spam_check(spam_words)]
@@ -1067,7 +1128,7 @@ def run(rows, spam_words, campaign_json=None, instantly_key=None, check_links=Fa
     findings.extend(chk_undefined_tags(campaign_json))
     findings.extend(chk_lead_list(campaign_json))
     findings.extend(chk_placeholders(campaign_json))
-    findings.extend(chk_forbidden_terms(campaign_json, forbidden_terms))
+    findings.extend(chk_forbidden_terms(campaign_json, forbidden_terms, rows))
     findings.extend(chk_variant_integrity(campaign_json))
     findings.extend(chk_subject_integrity(campaign_json))
     findings.extend(chk_step_pacing(campaign_json))
@@ -1077,6 +1138,48 @@ def run(rows, spam_words, campaign_json=None, instantly_key=None, check_links=Fa
         findings = [f for f in findings if f["check"] in enabled]
     return findings
 
+
+# Severity as each rule actually reports it, for `lastlook rules`. "either" means
+# the rule decides per finding (a 3-day gap warns, a 0-day gap blocks).
+# tests/test_rule_severity.py re-derives this from the check bodies and fails if
+# the table drifts, so it cannot quietly go stale.
+RULE_SEVERITY = {
+    "DATA_GAP": "BLOCKER",
+    "BLANK_MERGE": "BLOCKER",
+    "UNDEFINED_TAG": "BLOCKER",
+    "UNRESOLVED_VAR": "BLOCKER",
+    "UNKNOWN_SYNTAX": "BLOCKER",
+    "DANGLING_TEXT": "either",
+    "DOUBLE_PUNCT": "WARNING",
+    "CLAYGENT_APOLOGY": "BLOCKER",
+    "EM_DASH": "BLOCKER",
+    "CASING": "WARNING",
+    "LEGAL_SUFFIX": "WARNING",
+    "FULL_NAME_GREETING": "WARNING",
+    "INVISIBLE_CHARS": "WARNING",
+    "LENGTH": "either",
+    "SPAM_VOCAB": "WARNING",
+    "LINK_IN_FIRST_TOUCH": "WARNING",
+    "LINK_HEALTH": "WARNING",
+    "NAME_QUALITY": "WARNING",
+    "COMPANY_QUALITY": "WARNING",
+    "LEAD_NO_EMAIL": "BLOCKER",
+    "LEAD_INVALID_EMAIL": "BLOCKER",
+    "LEAD_DUPLICATE": "BLOCKER",
+    "LEAD_ROLE_ADDRESS": "BLOCKER",
+    "LEAD_FREEMAIL": "WARNING",
+    "LEAD_OVER_CONTACT": "WARNING",
+    "PLACEHOLDER_TEXT": "BLOCKER",
+    "FORBIDDEN_TERM": "BLOCKER",
+    "VARIANT_NOT_DISTINCT": "BLOCKER",
+    "SHARED_OPENER": "WARNING",
+    "EMPTY_SUBJECT": "BLOCKER",
+    "SUBJECT_STYLE": "WARNING",
+    "THREAD_BREAK": "WARNING",
+    "STEPS_NOT_PACED": "either",
+    "AB_SIGNAL_COLLISION": "WARNING",
+    "BROKEN_HANDOFF": "BLOCKER",
+}
 
 def resolve_enabled(disable=None, only=None):
     """Turn --disable/--only into the set of rule names to keep.

@@ -1,22 +1,24 @@
-"""fleet.py — run campaign-preflight across all of ONE client's live campaigns.
+"""fleet.py — audit every campaign in a manifest, worst first.
 
-Whole-client mode. Given a manifest of a single client's active campaigns
-(across Instantly and HeyReach), it pulls, renders, and checks each one, then
-prints a ranked summary — worst campaigns first — so you can see at a glance
-which of a client's live campaigns are shipping broken.
+Whole-account mode. Given a manifest of campaigns (across Instantly and
+HeyReach), it pulls, renders and checks each one, then prints a ranked summary —
+worst campaigns first — so you can see at a glance which of your live campaigns
+are shipping broken.
 
-The assistant builds the manifest from Airtable (client -> campaigns + keys);
-this script just executes the fleet and aggregates. Leads are sampled
-(--max-leads, default 200) so a many-campaign scan stays fast; any campaign that
-flags can be re-run in full with the single-campaign pipeline.
+Leads are sampled (--max-leads, default 200) so a many-campaign scan stays fast;
+any campaign that flags can be re-run in full with `lastlook audit`.
 
-Manifest JSON: [{"platform":"instantly"|"heyreach","campaign":"<id>","key":"<api key>","name":"..."}]
+Manifest JSON, one object per campaign:
+
+    [
+      {"platform": "instantly", "campaign": "Q3 Outbound", "key": "...", "name": "Q3"},
+      {"platform": "heyreach",  "campaign": "12345",       "key": "...", "name": "LI"}
+    ]
 
 Usage:
-    python3 fleet.py --manifest /tmp/globex_manifest.json --client Globex --max-leads 200
+    lastlook fleet --manifest manifest.json --label acme --max-leads 200
 """
 
-import argparse
 import csv
 import json
 import sys
@@ -65,16 +67,27 @@ def scan_one(entry, max_leads):
     }
 
 
-def main():
-    ap = argparse.ArgumentParser(description="Preflight a whole client's live campaigns.")
-    ap.add_argument("--manifest", required=True)
-    ap.add_argument("--client", default="")
-    ap.add_argument("--max-leads", type=int, default=200)
-    ap.add_argument("--out", default=None)
-    args = ap.parse_args()
-
-    with open(args.manifest, encoding="utf-8") as f:
-        entries = json.load(f)
+def run(args):
+    """The `lastlook fleet` body. args needs: manifest, label, max_leads, out."""
+    try:
+        with open(args.manifest, encoding="utf-8") as f:
+            entries = json.load(f)
+    except FileNotFoundError:
+        print(f"lastlook: no such manifest: {args.manifest}", file=sys.stderr)
+        return 3
+    except json.JSONDecodeError as e:
+        print(f"lastlook: {args.manifest} is not valid JSON: {e}", file=sys.stderr)
+        return 3
+    if not isinstance(entries, list) or not entries:
+        print(f"lastlook: {args.manifest} must be a non-empty list of campaigns. "
+              f"Nothing was checked.", file=sys.stderr)
+        return 3
+    for i, e in enumerate(entries):
+        missing = [k for k in ("platform", "campaign", "key") if not (e or {}).get(k)]
+        if missing:
+            print(f"lastlook: manifest entry {i} is missing {', '.join(missing)}. "
+                  f"Nothing was checked.", file=sys.stderr)
+            return 3
 
     results = []
     for e in entries:
@@ -94,7 +107,7 @@ def main():
     rank = {"NOT CLEAR": 0, "CAUTION": 1, "ERROR": 2, "CLEAR": 3}
     results.sort(key=lambda r: (rank[r["verdict"]], -r["leads_broken"]))
 
-    title = f"FLEET PREFLIGHT — {args.client}" if args.client else "FLEET PREFLIGHT"
+    title = f"FLEET AUDIT — {args.label}" if args.label else "FLEET AUDIT"
     n_nc = sum(1 for r in results if r["verdict"] == "NOT CLEAR")
     print("\n" + "=" * 92)
     print(f"{title}   ({len(results)} live campaigns, ~{args.max_leads} leads sampled each)")
@@ -109,7 +122,7 @@ def main():
     print("=" * 92)
     print(f"{n_nc} of {len(results)} campaigns are NOT CLEAR (have blockers).")
 
-    out = args.out or f"/tmp/fleet_{args.client or 'scan'}_summary.csv"
+    out = args.out or f"lastlook.fleet.{args.label or 'scan'}.csv"
     with open(out, "w", newline="", encoding="utf-8") as f:
         w = csv.DictWriter(f, fieldnames=["verdict", "platform", "name", "leads", "messages",
                                           "blockers", "warnings", "leads_broken", "top_blocker"])
@@ -117,6 +130,10 @@ def main():
         w.writerows(results)
     print(f"\nSummary -> {out}")
 
-
-if __name__ == "__main__":
-    main()
+    # Same exit-code contract as every other command: 2 if anything blocks, 3 if
+    # a campaign errored and was therefore NOT checked, 1 for warnings only.
+    if any(r["verdict"] == "ERROR" for r in results):
+        return 3
+    if n_nc:
+        return 2
+    return 1 if any(r["warnings"] for r in results) else 0

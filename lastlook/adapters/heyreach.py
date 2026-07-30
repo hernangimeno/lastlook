@@ -31,7 +31,7 @@ import sys
 import httpx
 
 BASE = "https://api.heyreach.io"
-UA = "campaign-preflight/1.0 (+example.com)"
+UA = "lastlook/0.1 (+https://github.com/hernangimeno/lastlook)"
 PAGE = 100
 
 # HeyReach personalizes with single-brace tags like {FIRST_NAME}, {COMPANY}.
@@ -139,7 +139,7 @@ def _fb_map(fallback, inmail=False):
 
 def fetch_list_leads(cx, list_id, max_leads=None):
     # GetLeadsFromList is POST with a JSON body (the docs' GET summary is wrong;
-    # the live API returns 405 for GET). Verified against campaign 100002.
+    # the live API returns 405 for GET). Verified against a live campaign.
     leads, offset = [], 0
     while True:
         r = cx.post("/api/public/list/GetLeadsFromList",

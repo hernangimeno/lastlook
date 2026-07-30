@@ -1,9 +1,10 @@
 # lastlook
 
-**See every message your cold campaign would actually send — before it sends.**
+**A command-line tool that shows you every message your cold campaign would
+actually send — before it sends.**
 
 Your sequence builder shows you the template. Your prospect gets the *rendered*
-message. The bugs that lose deals only exist in the gap between those two:
+message. Every bug that costs you a reply lives in the gap between the two:
 
 ```
 Template   Hi {{firstName}}, noticed {{company}} is scaling. {{ai_research}}.
@@ -12,9 +13,9 @@ Sends      Hi , noticed  is scaling. I couldn't find information about this
            company.
 ```
 
-No campaign UI will show you that line before it goes out to 800 people.
-`lastlook` renders every variant against every real lead, then runs 35 checks on
-the output.
+No campaign UI shows you that line before it goes to 800 people. lastlook pulls
+the live campaign, renders every variant against every real lead, and runs 35
+checks on the output instead of the template.
 
 ```bash
 pip install git+https://github.com/hernangimeno/lastlook
@@ -43,18 +44,23 @@ lastlook can fix 2 of these for you (INVISIBLE_CHARS, DOUBLE_PUNCT).
 ================================================================
 ```
 
-Findings also land in a CSV, one row per lead × variant × issue, so you can push
-the broken rows straight back into whatever enriches your data.
+Findings also land in a CSV, one row per lead × variant × issue, so the broken
+rows go straight back into whatever enriches your data.
 
-## Why the summary looks like that
+## Why the summary reads like a to-do list
 
-Because a list of 40 findings does not get fixed. Findings are grouped by the
+Because a list of 40 findings never gets fixed. Findings are grouped by the
 **action that clears them** — `LEAD_DUPLICATE`, `LEAD_ROLE_ADDRESS` and
 `LEAD_INVALID_EMAIL` are all "clean the list before import", so they are one
-line of work, not three. Capped at five, ranked by blast radius, each with a
-time estimate, and what is already clean is stated instead of implied.
+line of work, not three. Five lines maximum, ranked by blast radius, each with a
+time estimate. What is already clean is stated, not implied.
 
-Use `--no-recap` for the raw table.
+It also states what did **not** run. Narrow the run with `--only`, forget
+`--campaign-json`, and you get a `NOT CHECKED` block naming every rule that sat
+out and why. A count of checks that never happened is the same lie as a missed
+defect, and harder to notice.
+
+Use `--no-recap` for the raw table (the coverage line survives it).
 
 ## What it catches
 
@@ -66,21 +72,22 @@ Run `lastlook rules` for the full catalog. The categories:
 | **AI enrichment leaking** | "I couldn't find information", "as an AI", `null`, `N/A` sitting mid-sentence |
 | **Raw CRM values** | `BOB`, `Acme Inc.` mid-sentence, `Hi John Smith,`, placeholder names, mojibake |
 | **Lead list** | Duplicates, role inboxes (`info@`, `noreply@`), invalid addresses, free-mail in a B2B list, too many contacts at one domain |
-| **Copy hygiene** | Invisible characters, spam vocabulary, placeholder text (`lorem ipsum`, `[insert]`, `TODO`), banned terms you supply |
+| **Copy hygiene** | Invisible characters, spam vocabulary, placeholder text (`lorem ipsum`, `[insert]`, `TODO`), banned terms you supply — checked in the templates *and* in the rendered output, since a previous client's name usually arrives through the data |
 | **Structure** | Duplicate A/B variants, shared openers, missing subject, follow-ups that break threading, steps with no gap between them |
 
 Severity is **BLOCKER** (do not launch) or **WARNING** (launch with eyes open).
 
 Every rule ships with a test that fires it *and* a near-miss that must stay
 quiet. A checker that cries wolf on clean copy gets uninstalled, so the quiet
-cases are treated as the important ones. `"we test your pipeline"` does not trip
-the placeholder rule; `TEST` alone does. An en dash in `11–15 hours` is correct
+cases matter more than the loud ones. `"we test your pipeline"` does not trip the
+placeholder rule; `TEST` alone does. An en dash in `11–15 hours` is correct
 typography and passes.
 
 ## Credentials
 
-lastlook talks to your campaign platform, so it needs that platform's own API
-key. Nothing else — no account, no signup, no server.
+lastlook reads your campaign from the platform you already pay for, so it needs
+that platform's own API key. Nothing else: no account, no signup, no server of
+mine in the path. It runs locally and talks only to your platform.
 
 | Platform | Where the key lives |
 |---|---|
@@ -104,11 +111,14 @@ forever.
 Copy `.env.example` to `.env` to start. **`.env` is gitignored** — if you add
 lastlook to an existing repo, check your own `.gitignore` covers it too.
 
-Prefer the env var or `.env` over `--key`: a flag lands in your shell history
-and is visible to anyone who can run `ps` on the machine.
+The key is read, used for the request, and never written anywhere you did not
+ask for: not to the findings CSV, not to the campaign JSON, not to any config
+file. The one file it can land in is the `.env` you explicitly say yes to at the
+prompt.
 
-The key is read, used for the request, and never written anywhere — not to the
-findings CSV, not to the campaign JSON, not to a config file.
+Prefer the env var or `.env` over `--key` for one more reason: a flag on the
+command line is visible in `ps` output to every other user on the machine, not
+just in your own shell history.
 
 If a key is missing or rejected you get a plain sentence and **exit 3**, never a
 stack trace and never exit 1. Exit 1 means "warnings only", so an auth failure
@@ -124,7 +134,17 @@ lastlook check rendered.jsonl --campaign-json c.json     # check only
 lastlook fix c.json                                      # show the safe fixes
 lastlook fix c.json --apply                              # write them back
 lastlook coverage c.json                                 # merge-tag fill rates
-lastlook rules                                           # the catalog
+lastlook fleet --manifest m.json                         # many campaigns, worst first
+lastlook rules                                           # the catalog, with severities
+lastlook --version
+```
+
+`fleet` takes a JSON list of campaigns and ranks them worst first, sampling leads
+so a 20-campaign scan stays quick:
+
+```json
+[{"platform": "instantly", "campaign": "Q3 Outbound", "key": "...", "name": "Q3"},
+ {"platform": "heyreach",  "campaign": "12345",       "key": "...", "name": "LinkedIn"}]
 ```
 
 ## Fixing
@@ -136,7 +156,7 @@ invisible characters, another platform's merge tags (`{FIRST_NAME}` in an
 Instantly campaign), space before punctuation, doubled commas, em dashes used as
 prose. `--apply` writes them back to the platform after a typed confirmation.
 
-**Data fixes** are bad values on the leads — `🔷Anthony`, `Dr. Sam`,
+**Data fixes** are bad values on the leads: `🔷Marco`, `Dr. Sam`,
 `Initech Ltd`, `Contoso® Media AG 🇨🇭`. lastlook cannot fix your CRM, so these
 export as a CSV of current → suggested.
 
@@ -184,7 +204,12 @@ quietly matched nothing would let a campaign look clean for the wrong reason.
 | `0` | Clear |
 | `1` | Warnings only |
 | `2` | Blockers — do not launch |
-| `3` | Tool error |
+| `3` | Tool error, and nothing was checked |
+
+`3` covers every case where the tool did not do its job: a bad key, a missing
+file, a mistyped flag, a campaign that rendered nothing. Usage errors exit `3`
+and not argparse's usual `2`, because `2` here means "this campaign will damage
+your domain" and a wrapper script has to be able to tell those apart.
 
 Rendering zero messages is always exit `3`, never "clear". A pass over nothing
 is the most dangerous output this tool could produce.
@@ -227,6 +252,13 @@ python3 tests/run_all.py --regen   # rewrite goldens — read the diff first
 
 Goldens are regenerated deliberately, never to make red go green. Spintax choice
 is seeded from the lead id, so renders are reproducible and diffable.
+
+`tests/test_no_private_data.py` fails the suite if a git-tracked file contains a
+name from your local `.private-terms` denylist, an email on a domain outside the
+synthetic set, or anything shaped like an API key. Copy `.private-terms.example`
+to `.private-terms` (gitignored) and put your clients' names in it. Real campaign
+copy is the most convenient test fixture there is, which is exactly why the check
+is mechanical rather than a matter of remembering.
 
 ## License
 

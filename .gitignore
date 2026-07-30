@@ -12,9 +12,17 @@ build/
 dist/
 *.egg-info/
 .pytest_cache/
+# Outputs. Every one of these can hold named prospects and their emails, so the
+# bare default filenames the CLI writes are listed alongside the glob forms.
 *.findings.csv
 *.coverage.csv
 *.rendered.jsonl
+rendered.jsonl
+lastlook.fixes.csv
+lastlook.removals.csv
 campaign.json
 .DS_Store
 dist/
+
+# The private-terms denylist is itself confidential (see tests/test_no_private_data.py).
+.private-terms

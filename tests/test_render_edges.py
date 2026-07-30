@@ -11,7 +11,7 @@ Each fix keeps a case that fires and a near-miss that stays quiet:
 import os, sys
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from lastlook import check, cli
-from lastlook.render import render_message
+from lastlook.render import render_message, BLANK
 
 fails = 0
 
@@ -45,6 +45,27 @@ case("RANDOM options stay whole", outs <= {"Hey Anne", "Hi Acme"}, True)
 t = "{{RANDOM | plain A | plain B }}"
 outs = {render_message(t, dict(LEAD, id=f"p{i}"), {})[0].strip() for i in range(10)}
 case("RANDOM without inner tags still splits", outs <= {"plain A", "plain B"}, True)
+
+# --- RANDOM: an unbalanced opening must not hang (ReDoS) ---
+# The old single-regex form was exponential on this input: 140 bytes took 3.2s
+# and 200 bytes never returned. The scan is linear, so a pathological input that
+# used to wedge the process now finishes in milliseconds and the broken tag is
+# left in place for the leftover-tag checks to flag.
+import time
+evil = "{{RANDOM | " + "{{a}}" * 60 + "x"          # 300+ bytes, never balances
+t0 = time.monotonic()
+out = render_message(evil, LEAD, {})[0]
+elapsed = time.monotonic() - t0
+case("unbalanced RANDOM finishes fast", elapsed < 1.0, True)
+# The broken block falls through to the var pass, which cannot resolve it and
+# leaves BLANK sentinels: the blank-merge check fires. A malformed template must
+# never render clean.
+case("unbalanced RANDOM still raises a finding", BLANK in out, True)
+# Near-miss: a balanced block sitting AFTER a broken one still renders.
+t = "{{RANDOM | broken {{a}} " + "\n" + "{{RANDOM | good A | good B }}"
+outs = {render_message(t, dict(LEAD, id=f"q{i}"), {})[0] for i in range(10)}
+case("balanced RANDOM after a broken one renders",
+     all(o.rstrip().endswith(("good A", "good B")) for o in outs), True)
 
 # --- verdict counts distinct leads ---
 rows = [{"lead_id": "l1", "variant": "A", "step": 1},

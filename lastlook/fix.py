@@ -45,7 +45,7 @@ FOREIGN_TAGS = {
     # No heyreach entry ON PURPOSE. Its adapter canonicalizes {FIRST_NAME} to
     # {{first_name}} on the way in, so by the time a fix is planned the tags are
     # already double-brace. Mapping them "back" produced a diff that rewrote
-    # perfectly good copy on all 7 live AcmeAds campaigns.
+    # perfectly good copy on all 7 campaigns of a live LinkedIn account.
 }
 
 
@@ -70,7 +70,7 @@ def _collapse_spaces(text, platform=None):
 
 
 def _double_punct(text, platform=None):
-    # "Hey Yune,," and "together.." — a value that already ended in punctuation
+    # "Hey Sam,," and "together.." — a value that already ended in punctuation
     # meeting a template that adds its own. Ellipses are left alone.
     text = re.sub(r",{2,}", ",", text)
     return re.sub(r"(?<!\.)\.\.(?!\.)", ".", text)
@@ -118,6 +118,28 @@ def fix_text(text, platform=None, enabled=None):
     return text, applied
 
 
+# Which rule code each template transform actually clears. Used by the recap so
+# "lastlook can fix N of these" is derived from the plan, never from the findings.
+FIX_ID_TO_RULE = {
+    "invisible_chars": "INVISIBLE_CHARS",
+    "foreign_tags": "UNKNOWN_SYNTAX",
+    "space_before_punct": "DANGLING_TEXT",
+    "collapse_spaces": "DANGLING_TEXT",
+    "double_punct": "DOUBLE_PUNCT",
+    "prose_dash": "EM_DASH",
+}
+
+
+def fixable_rules(campaign, enabled=None):
+    """The rule codes `fix` would genuinely clear on THIS campaign's templates."""
+    out = set()
+    for edit in plan_template_fixes(campaign, enabled):
+        for fid in edit["fixes"]:
+            if fid in FIX_ID_TO_RULE:
+                out.add(FIX_ID_TO_RULE[fid])
+    return out
+
+
 def plan_template_fixes(campaign, enabled=None):
     """Every template edit this campaign needs. Nothing is written."""
     platform = campaign.get("platform")
@@ -158,7 +180,7 @@ def _clean_company(value):
     # A trailing domain restating the name: "Acme Inbound - AcmeInbound.com"
     v = re.sub(r"\s*[-–—]\s*[\w.-]+\.(com|io|ai|co|net|org|eu)\s*$", "", v, flags=re.I)
     v = LEGAL_SUFFIX_TAIL.sub("", v).strip(" ,-")
-    # "Affinity (CRM)" -> "Affinity";  "Foo/Bar Baz" -> "Foo"
+    # "Globex (CRM)" -> "Globex";  "Foo/Bar Baz" -> "Foo"
     v = PAREN_TAIL.sub("", v)
     if "/" in v:
         v = v.split("/")[0].strip()
@@ -170,14 +192,14 @@ def _clean_company(value):
 
 def _clean_first_name(value):
     v = EMOJI_AND_MARKS.sub("", value).strip()
-    # Mojibake: "Ã‚ngela" style double-encoding round-trips back to "Ângela".
+    # Mojibake: "JosÃ©" style double-encoding round-trips back to "José".
     try:
         maybe = v.encode("cp1252", errors="strict").decode("utf-8", errors="strict")
         if maybe != v and not re.search(r"[ÃÂâ€]", maybe):
             v = maybe
     except (UnicodeEncodeError, UnicodeDecodeError):
         pass
-    v = PAREN_TAIL.sub("", v)          # "Julian (Jules)" -> "Julian"
+    v = PAREN_TAIL.sub("", v)          # "Sam (Sammy)" -> "Sam"
     v = re.sub(r"[,\s]+(phd|md|mba|cpa|jr|sr|iii|iv)\b\.?$", "", v, flags=re.I)
     # Drop a leading honorific BEFORE taking the first token, or "Dr. Sam"
     # collapses to "Dr" — which is what shipped on the first run.
@@ -249,6 +271,25 @@ class ApplyUnsupported(RuntimeError):
     """The platform offers no way to write the sequence back."""
 
 
+class WrongCampaign(RuntimeError):
+    """The live campaign at this id is not the one you confirmed by name.
+
+    You type a campaign NAME to confirm --apply, but the write targets the ID in
+    the local JSON. A stale or hand-edited campaign.json whose name and id
+    disagree would have you approve one campaign and overwrite another. Both
+    writers already fetch the live campaign, so the name is right there: check it
+    before touching anything."""
+
+
+def _assert_same_campaign(local_name, live_name, cid):
+    if (local_name or "").strip() == (live_name or "").strip():
+        return
+    raise WrongCampaign(
+        f"refusing to write: campaign id {cid} is called '{live_name}' on the "
+        f"platform, but your campaign JSON calls it '{local_name}'. Nothing was "
+        f"written. Re-pull the campaign and try again.")
+
+
 def apply_template_fixes(campaign, edits, api_key, enabled=None):
     """Write the edited templates back to the platform."""
     platform = campaign.get("platform")
@@ -273,6 +314,7 @@ def apply_template_fixes(campaign, edits, api_key, enabled=None):
     live = cx.get(f"/campaigns/{cid}")
     live.raise_for_status()
     live = live.json()
+    _assert_same_campaign(campaign["campaign"].get("name"), live.get("name"), cid)
     seqs = live.get("sequences") or []
 
     touched, step_no = 0, 0
@@ -300,8 +342,8 @@ def apply_template_fixes(campaign, edits, api_key, enabled=None):
 
 # --- HeyReach writer ----------------------------------------------------------
 # HeyReach refuses a sequence write while a campaign is running, so the flow is
-# pause -> UpdateSequence -> resume. Verified live 2026-07-30 against the dormant
-# campaign 100001: POST /campaign/UpdateSequence with {"campaignId", "Sequence"}
+# pause -> UpdateSequence -> resume. Verified live 2026-07-30 against a dormant
+# campaign: POST /campaign/UpdateSequence with {"campaignId", "Sequence"}
 # returns 200 and a no-op round-trip leaves the tree byte-identical.
 
 HR_MESSAGE_NODES = {"CONNECTION_REQUEST", "MESSAGE", "INMAIL"}
@@ -364,7 +406,9 @@ def _apply_heyreach(campaign, edits, api_key, enabled=None):
     try:
         meta = cx.get("/campaign/GetById", params={"campaignId": cid})
         meta.raise_for_status()
-        was_running = meta.json().get("status") == "IN_PROGRESS"
+        meta = meta.json()
+        _assert_same_campaign(campaign["campaign"].get("name"), meta.get("name"), cid)
+        was_running = meta.get("status") == "IN_PROGRESS"
 
         if was_running:
             # Pause/Resume take campaignId as a QUERY PARAM, not a JSON body —

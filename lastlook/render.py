@@ -43,7 +43,16 @@ COND_RE = re.compile(
 # Must be resolved BEFORE VAR_RE, which would otherwise read "RANDOM" as a variable
 # and leak the remaining options as literal text. Inner {{vars}} in an option are
 # preserved and resolved by the later var pass.
-RANDOM_RE = re.compile(r"\{\{\s*RANDOM\s*\|((?:[^{}]|\{\{.*?\}\})*?)\}\}", re.IGNORECASE | re.DOTALL)
+#
+# Only the OPENING is a regex; the closing }} is found by _find_random's depth
+# scan below. A single pattern spanning both was
+#   \{\{\s*RANDOM\s*\|((?:[^{}]|\{\{.*?\}\})*?)\}\}
+# whose alternation is ambiguous: "{{a}}{{b}}" decomposes many ways, so an
+# unbalanced opening backtracked exponentially. 140 bytes took 3.2s, 200 bytes
+# never returned — and an unbalanced {{RANDOM is exactly the malformed template
+# this tool exists to flag, so the input that should raise a finding hung the run
+# instead. In cron that wedges the job forever.
+RANDOM_OPEN_RE = re.compile(r"\{\{\s*RANDOM\s*\|", re.IGNORECASE)
 # {{ var }} or {{ var | fallback }}  — variable, optional inline fallback.
 # Key may contain internal spaces (Instantly custom vars like {{Industry For Emails}});
 # starts with a word char so it never matches {{#if}} / {{/if}}.
@@ -238,12 +247,45 @@ def _split_top_level(s):
     return parts
 
 
-def render_random(text, seed):
-    def repl(m):
-        options = [o.strip() for o in _split_top_level(m.group(1))]
-        return _stable_choice(options, seed + "R" + m.group(1))
+def _find_random(text, from_pos):
+    """Locate the next {{RANDOM | ...}} block. Returns (start, end, inner) or None.
 
-    return RANDOM_RE.sub(repl, text)
+    One left-to-right pass, so cost is linear in the length of the text — see the
+    ReDoS note on RANDOM_OPEN_RE. An opening whose {{ }} never balances is left
+    alone rather than guessed at: the leftover-tag checks then flag it, which is
+    the correct outcome for a broken template."""
+    n = len(text)
+    while True:
+        m = RANDOM_OPEN_RE.search(text, from_pos)
+        if not m:
+            return None
+        i, depth = m.end(), 0
+        while i < n:
+            two = text[i:i + 2]
+            if two == "{{":
+                depth += 1; i += 2; continue
+            if two == "}}":
+                if depth == 0:
+                    return m.start(), i + 2, text[m.end():i]
+                depth -= 1; i += 2; continue
+            i += 1
+        # Unbalanced. Resume after this opening so a well-formed block that
+        # follows a broken one still renders.
+        from_pos = m.end()
+
+
+def render_random(text, seed):
+    out, pos = [], 0
+    while True:
+        found = _find_random(text, pos)
+        if not found:
+            out.append(text[pos:])
+            return "".join(out)
+        start, end, inner = found
+        options = [o.strip() for o in _split_top_level(inner)]
+        out.append(text[pos:start])
+        out.append(_stable_choice(options, seed + "R" + inner))
+        pos = end
 
 
 def render_spintax(text, seed):

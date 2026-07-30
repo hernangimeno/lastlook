@@ -24,7 +24,7 @@ sys.path.insert(0, ROOT)
 
 BEHAVIOURAL = ("test_dangling.py", "test_leadlist.py",
                "test_template_integrity.py", "test_recap.py", "test_fix.py", "test_false_green.py", "test_credentials.py", "test_prompt.py",
-               "test_render_edges.py")
+               "test_render_edges.py", "test_no_private_data.py", "test_rule_severity.py")
 
 
 def run_behavioural():
@@ -112,6 +112,12 @@ def run_schema():
 def run_cli():
     """Exit codes are part of the public contract: people gate sends on them."""
     failures = 0
+    noleads = os.path.join(FIXTURES, "_noleads.json")
+    with open(os.path.join(FIXTURES, "fixture_conditional.json"), encoding="utf-8") as f:
+        stripped = json.load(f)
+    stripped["leads"] = []
+    with open(noleads, "w", encoding="utf-8") as f:
+        json.dump(stripped, f)
     cases = [
         ("clean fixture -> 0", ["fixture_conditional.json"], 0),
         ("blocker fixture -> 2", ["fixture_planted_bugs.json"], 2),
@@ -127,16 +133,60 @@ def run_cli():
         failures += not ok
         print(f"{'PASS' if ok else 'FAIL'}  {label} (got {r.returncode})")
 
+    clean = os.path.join(FIXTURES, "fixture_conditional.json")
+    bugs = os.path.join(FIXTURES, "fixture_planted_bugs.json")
     for label, argv, want in [
         ("missing file -> 3", ["check", "/tmp/_nope.jsonl"], 3),
         ("unknown rule -> 3", ["check", "/tmp/_ll.jsonl", "--disable", "NOPE"], 3),
         ("rules catalog -> 0", ["rules"], 0),
+        # A usage error is a TOOL error. Exit 2 would read as "blockers found".
+        ("unknown subcommand -> 3", ["audits"], 3),
+        ("bad flag value -> 3", ["coverage", clean, "--min-fill", "abc"], 3),
+        ("missing required flag -> 3", ["fleet"], 3),
+        ("no arguments at all -> 3", [], 3),
+        # --forbidden-terms used to scan templates only, so without the campaign
+        # JSON it checked nothing and said CLEAR. It now scans rendered output,
+        # where a term arriving through lead data actually shows up: 2, not 0.
+        ("forbidden term in rendered output -> 2",
+         ["check", "/tmp/_ll.jsonl", "--forbidden-terms", "acme"], 2),
+        # A mistyped path became a literal banned term, silently.
+        ("forbidden-terms nonexistent file -> 3",
+         ["check", "/tmp/_ll.jsonl", "--campaign-json", bugs,
+          "--forbidden-terms", "./_nope_terms.txt"], 3),
+        # Rule names are shouted in the catalog; case alone must not be a wall.
+        ("lowercase rule name is accepted",
+         ["check", "/tmp/_ll.jsonl", "--campaign-json", bugs, "--only", "em_dash"], 2),
+        # A pass over nothing is never a pass.
+        ("coverage on a lead-less campaign -> 3",
+         ["coverage", os.path.join(FIXTURES, "_noleads.json")], 3),
+        # The campaign JSON handed to `check` gets a pointer, not a JSON error.
+        ("campaign JSON passed to check -> 3", ["check", bugs], 3),
+        ("unwritable render output -> 3", ["render", clean, "-o", "/_nodir_/x.jsonl"], 3),
     ]:
         r = subprocess.run([sys.executable, "-m", "lastlook.cli"] + argv,
                            cwd=ROOT, capture_output=True, text=True)
         ok = r.returncode == want
         failures += not ok
         print(f"{'PASS' if ok else 'FAIL'}  {label} (got {r.returncode})")
+
+    # A narrowed run must SAY what it did not check. Silence here reads as coverage.
+    r = subprocess.run([sys.executable, "-m", "lastlook.cli", "check", "/tmp/_ll.jsonl",
+                        "--only", "EM_DASH", "--campaign-json",
+                        os.path.join(FIXTURES, "fixture_conditional.json"),
+                        "-o", "/tmp/_ll2.csv"], cwd=ROOT, capture_output=True, text=True)
+    ok = "NOT CHECKED: 34 rule" in r.stdout and "35 checks ran" not in r.stdout
+    failures += not ok
+    print(f"{'PASS' if ok else 'FAIL'}  --only reports the 34 rules that did not run")
+
+    # ... and so must --no-recap, which suppresses the recap, not the hole.
+    r = subprocess.run([sys.executable, "-m", "lastlook.cli", "check", "/tmp/_ll.jsonl",
+                        "--only", "EM_DASH", "--no-recap", "-o", "/tmp/_ll2.csv"],
+                       cwd=ROOT, capture_output=True, text=True)
+    ok = "NOT CHECKED" in r.stdout
+    failures += not ok
+    print(f"{'PASS' if ok else 'FAIL'}  --no-recap still reports the coverage hole")
+
+    os.remove(noleads)
     return failures
 
 

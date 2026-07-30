@@ -26,7 +26,7 @@ print("— template transforms —")
 t("strips a zero-width space", fix._strip_invisibles("Hi​Jane"), "HiJane")
 t("nbsp becomes a real space", fix._strip_invisibles("Hi Jane"), "Hi Jane")
 t("space before comma", fix._space_before_punct("Hey Anne , how are you"), "Hey Anne, how are you")
-t("doubled comma", fix._double_punct("Hey Yune,, there"), "Hey Yune, there")
+t("doubled comma", fix._double_punct("Hey Sam,, there"), "Hey Sam, there")
 t("doubled period", fix._double_punct("together.. Next"), "together. Next")
 t("prose em dash", fix._prose_dash("a — b"), "a - b")
 t("collapses double space", fix._collapse_spaces("Hey  there"), "Hey there")
@@ -65,11 +65,11 @@ t("unknown platform changes nothing",
   fix._foreign_tags("Hey {FIRST_NAME},", "lemlist"), "Hey {FIRST_NAME},")
 
 print("\n— data cleaners —")
-t("emoji prefix", fix._clean_first_name("🔷Anthony"), "Anthony")
+t("emoji prefix", fix._clean_first_name("🔷Marco"), "Marco")
 t("full name to first", fix._clean_first_name("Norman Gregory"), "Norman")
 t("honorific dropped, not kept", fix._clean_first_name("Dr. Sam"), "Sam")
 t("nickname in quotes", fix._clean_first_name('Theodore "Theo"'), "Theodore")
-t("parenthetical nickname", fix._clean_first_name("Julian (Jules)"), "Julian")
+t("parenthetical nickname", fix._clean_first_name("Sam (Sammy)"), "Sam")
 t("shouting name", fix._clean_first_name("DANA"), "Dana")
 t("registered mark", fix._clean_company("the Globex Workout®"), "the Globex Workout")
 t("legal suffix", fix._clean_company("Initech Ltd"), "Initech")
@@ -80,7 +80,7 @@ t("all-caps company", fix._clean_company("DRCB CONSULTING"), "Drcb Consulting")
 print("\n— data cleaners: leave good values alone —")
 for good in ("Jane", "José", "Ana-Maria", "O'Brien"):
     t(f"first name {good!r} untouched", fix._clean_first_name(good), good)
-for good in ("Acme", "Customer.io", "AT&T", "3M", "Coca-Cola"):
+for good in ("Acme", "Initech.io", "AT&T", "3M", "Coca-Cola"):
     t(f"company {good!r} untouched", fix._clean_company(good), good)
 
 print("\n— planning —")
@@ -91,7 +91,7 @@ camp = {
         {"id": "A", "subject": "hi", "body": "Hey {FIRST_NAME},"},
         {"id": "B", "subject": "hi", "body": "Hey {{firstName}},", "disabled": True},
     ]}],
-    "leads": [{"id": "1", "first_name": "🔷Anthony", "company_name": "Acme Ltd"}],
+    "leads": [{"id": "1", "first_name": "🔷Marco", "company_name": "Acme Ltd"}],
 }
 edits = fix.plan_template_fixes(camp)
 t("plans only the broken enabled variant", [(e["step"], e["variant"], e["field"]) for e in edits],
@@ -129,9 +129,9 @@ t("email in the name field", reasons(first_name="jane@acme.com"), ["name_is_not_
 print("\n— removals: recoverable values are NOT removals —")
 for co in ("Globex Law Office/www.globex.eu", "Initech.co | We are hiring!",
            "Acme Inbound - AcmeInbound.com", "Contoso.com, LLC",
-           "Customer.io", "Acme", "the Globex Workout®"):
+           "Initech.io", "Acme", "the Globex Workout®"):
     t(f"{co!r} is a data fix, not a removal", reasons(company_name=co), [])
-for fn in ("🔷Anthony", "Dr. Sam", "Norman Gregory", "DANA", "José"):
+for fn in ("🔷Marco", "Dr. Sam", "Sam Taylor", "DANA", "José"):
     t(f"{fn!r} is a data fix, not a removal", reasons(first_name=fn), [])
 
 t("clean lead suggests nothing", reasons(first_name="Jane", company_name="Acme"), [])

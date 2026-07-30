@@ -1,0 +1,15 @@
+# Terms that must never appear in this repo. One per line, case-insensitive,
+# substring match. `#` starts a comment.
+#
+# Copy this file to `.private-terms` and fill in your own. `.private-terms` is
+# gitignored on purpose: a list of your clients' names is itself the thing you
+# are trying to keep out of a public repo.
+#
+# Put in it: client and employer names, their product names, real prospect
+# companies, live campaign ids, internal tool or table names, teammates' names.
+#
+# tests/test_no_private_data.py fails the build if any of them appear in a
+# git-tracked file. Without this file that check is skipped and says so.
+
+# AcmeClient
+# 100001

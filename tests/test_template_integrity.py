@@ -90,7 +90,8 @@ expect("one-char difference is a real edit, not a duplicate",
 expect("whitespace-only difference still counts as duplicate",
        sev1(campaign([V("1A", body=same), V("1B", body=same.replace("\n\n", "\n\n  "))])),
        ["VARIANT_NOT_DISTINCT:BLOCKER", "SHARED_OPENER:WARNING"])
-# The live Initech pair: one swapped sentence is a deliberate single-variable test.
+# Modelled on a real A/B pair seen in the field: one swapped sentence, everything
+# else identical, which is a deliberate single-variable test and must stay quiet.
 onesent_a = ("Hi {{firstName}},\n\nLooking to automate rep busywork?\n\nInitech automates rep "
              "busywork and builds the assets needed to win deals.\n\nI've already built a pitch "
              "deck for {{companyName}} showing how Initech would work for your team. Want to see it?")

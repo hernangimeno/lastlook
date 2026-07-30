@@ -21,6 +21,10 @@ from .validate import CampaignError, validate
 
 EXIT_CLEAR, EXIT_WARN, EXIT_BLOCK, EXIT_ERROR = 0, 1, 2, 3
 
+__version__ = "0.1.0"
+SCHEMA_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                           "schema", "campaign.schema.json")
+
 
 def _explain(exc):
     """Turn a platform failure into something a human can act on.
@@ -75,7 +79,7 @@ def _load_campaign(path):
         return validate(campaign)
     except CampaignError as e:
         _die(f"{path}: {e}\n"
-             f"       The expected shape is lastlook/schema/campaign.schema.json")
+             f"       The expected shape is {SCHEMA_PATH}")
 
 
 def _adapter(name):
@@ -196,6 +200,12 @@ def _forbidden(arg):
     if os.path.exists(arg):
         with open(arg, encoding="utf-8") as f:
             return [ln.strip() for ln in f if ln.strip() and not ln.startswith("#")]
+    # A mistyped path used to be read as a literal banned term, so the rule ran
+    # against the word "./terms.txt" and reported the campaign clean. Anything
+    # shaped like a path has to exist.
+    if "/" in arg or arg.lower().endswith((".txt", ".csv")):
+        _die(f"no such forbidden-terms file: {arg}\n"
+             f"       Pass a comma-separated list, or a path that exists.")
     return [t.strip() for t in arg.split(",") if t.strip()]
 
 
@@ -222,28 +232,47 @@ def _write_findings(findings, path):
 
 def _run_checks(rows, campaign, args):
     try:
+        # Upper-cased for the user: rule names are shouted in the catalog, and
+        # `--only em_dash` failing on case alone is a pointless wall.
         enabled = check.resolve_enabled(
-            disable=[s.strip() for s in (args.disable or "").split(",") if s.strip()],
-            only=[s.strip() for s in (args.only or "").split(",") if s.strip()])
+            disable=[s.strip().upper() for s in (args.disable or "").split(",") if s.strip()],
+            only=[s.strip().upper() for s in (args.only or "").split(",") if s.strip()])
     except ValueError as e:
         _die(str(e))
+    forbidden = _forbidden(getattr(args, "forbidden_terms", None))
+    check_links = getattr(args, "check_links", False)
     findings = check.run(
         rows, check.load_spam_words(getattr(args, "spam_words", None)),
         campaign_json=campaign,
         instantly_key=getattr(args, "instantly_key", None),
-        check_links=getattr(args, "check_links", False),
-        forbidden_terms=_forbidden(getattr(args, "forbidden_terms", None)),
+        check_links=check_links,
+        forbidden_terms=forbidden,
         enabled=enabled)
-
-    out = getattr(args, "findings_out", None) or "lastlook.findings.csv"
-    _write_findings(findings, out)
+    ran, skipped = check.rules_actually_run(
+        enabled=enabled, campaign_json=campaign, check_links=check_links,
+        forbidden_terms=forbidden)
 
     issues = check.dedup_issues(findings)
     print(check.verdict_block(rows, findings))
     if not getattr(args, "no_recap", False):
-        print(recap.render(issues, rules_run=check.RULES,
-                           campaign_path=getattr(args, 'campaign_json', None)))
-    print(f"\nFull findings -> {out}")
+        # rules_run is what RAN, never the catalog: see check.rules_actually_run.
+        print(recap.render(issues, rules_run=sorted(ran), skipped=skipped,
+                           campaign_path=getattr(args, 'campaign_json', None),
+                           fixable_rules=fixmod.fixable_rules(campaign) if campaign else None))
+    elif skipped:
+        # --no-recap suppresses the recap, not the coverage hole.
+        print(f"\nNOT CHECKED: {len(skipped)} rule(s) did not run "
+              f"(drop --no-recap for the breakdown).")
+    # Written AFTER the verdict is on screen. An unwritable -o path used to raise
+    # before the verdict printed, so a campaign with blockers exited 3 with the
+    # blockers never shown.
+    out = getattr(args, "findings_out", None) or "lastlook.findings.csv"
+    try:
+        _write_findings(findings, out)
+        print(f"\nFull findings -> {out}")
+    except OSError as e:
+        print(f"\nlastlook: could not write the findings CSV to {out}: "
+              f"{e.strerror}. The verdict above still stands.", file=sys.stderr)
 
     if any(i["severity"] == check.BLOCKER for i in issues):
         return EXIT_BLOCK
@@ -257,7 +286,7 @@ def cmd_pull(args):
     key = _key_for(args.platform, args.key)
     campaign = ad.pull(key, args.campaign, max_leads=args.max_leads)
     out = args.out or "campaign.json"
-    with open(out, "w", encoding="utf-8") as f:
+    with _open_out(out) as f:
         json.dump(campaign, f, ensure_ascii=False, indent=2)
     nvar = sum(len(s.get("variants", [])) for s in campaign.get("steps", []))
     print(f"{campaign['campaign'].get('name')}: {len(campaign['steps'])} steps, "
@@ -265,11 +294,26 @@ def cmd_pull(args):
     return EXIT_CLEAR
 
 
+def _open_out(path):
+    """Open an output file, or explain why not. A raw FileNotFoundError on -o reads
+    as "your input is missing" when the problem is the destination."""
+    try:
+        return open(path, "w", encoding="utf-8", newline="")
+    except IsADirectoryError:
+        _die(f"cannot write {path}: that is a directory.")
+    except FileNotFoundError:
+        _die(f"cannot write {path}: the directory does not exist.")
+    except PermissionError:
+        _die(f"cannot write {path}: permission denied.")
+    except OSError as e:
+        _die(f"cannot write {path}: {e.strerror}.")
+
+
 def cmd_render(args):
     campaign = _load_campaign(args.campaign_json)
     rows = _render_rows(campaign)
     out = args.out or "rendered.jsonl"
-    with open(out, "w", encoding="utf-8") as f:
+    with _open_out(out) as f:
         for r in rows:
             f.write(json.dumps(r, ensure_ascii=False) + "\n")
     print(f"rendered {len(rows)} messages -> {out}")
@@ -286,6 +330,21 @@ def cmd_check(args):
                     rows.append(json.loads(ln))
     except FileNotFoundError:
         _die(f"no such file: {args.rendered}")
+    except json.JSONDecodeError as e:
+        # The likeliest mistake here by a mile: handing `check` the campaign JSON,
+        # since both files end in son and the two commands sit next to each other
+        # in the README. It used to surface as a raw JSONDecodeError.
+        hint = ""
+        try:
+            with open(args.rendered, encoding="utf-8") as f:
+                if f.read(1) == "{":
+                    hint = ("\n       This looks like a campaign JSON. `check` wants the "
+                            "rendered .jsonl:\n"
+                            f"         lastlook render {args.rendered} -o rendered.jsonl\n"
+                            f"         lastlook check rendered.jsonl --campaign-json {args.rendered}")
+        except OSError:
+            pass
+        _die(f"{args.rendered} is not valid JSONL: {e}{hint}")
     if not rows:
         _die(f"{args.rendered} is empty — nothing was checked.")
     campaign = _load_campaign(args.campaign_json) if args.campaign_json else None
@@ -380,6 +439,11 @@ def cmd_fix(args):
         n = fixmod.apply_template_fixes(campaign, edits, key, enabled)
     except fixmod.ApplyUnsupported as e:
         _die(str(e))
+    except fixmod.WrongCampaign as e:
+        # Checked against the live campaign, before any write. Kept separate from
+        # the generic handler below, whose "nothing may have been written" is a
+        # maybe — this one is a certainty.
+        _die(str(e))
     except Exception as e:
         _die(f"apply failed, nothing may have been written: {e}")
     print(f"Applied {n} field(s). Re-run `lastlook audit` to confirm.")
@@ -389,14 +453,27 @@ def cmd_fix(args):
 def cmd_coverage(args):
     from . import coverage
     campaign = _load_campaign(args.campaign_json)
+    if not (campaign.get("leads") or []):
+        # Same rule as render/check: a pass over nothing is the most dangerous
+        # output this tool can produce. 0% fill across 0 leads is not a finding.
+        _die("the campaign has no leads — there is nothing to measure coverage over.")
     return coverage.report(campaign, min_fill=args.min_fill)
+
+
+def cmd_fleet(args):
+    from . import fleet
+    return fleet.run(args)
 
 
 def cmd_rules(args):
     width = max(len(r) for r in check.RULES)
-    print(f"{len(check.RULES)} rules\n")
+    print(f"{len(check.RULES)} rules. "
+          f"BLOCKER = do not launch, WARNING = launch with eyes open.\n")
     for name, desc in check.RULES.items():
-        print(f"  {name:<{width}}  {desc}")
+        sev = check.RULE_SEVERITY.get(name, "")
+        print(f"  {name:<{width}}  {sev:<7}  {desc}")
+    print("\nRules that need --campaign-json: "
+          + ", ".join(sorted(check.CAMPAIGN_ONLY_RULES)))
     return EXIT_CLEAR
 
 
@@ -407,64 +484,116 @@ def _add_check_flags(p):
                    help="comma-separated terms, or a path to a newline-delimited file")
     p.add_argument("--spam-words", default=None, help="extra spam words, one per line")
     p.add_argument("--check-links", action="store_true", help="probe every URL in the copy")
-    p.add_argument("--disable", default="", help="comma-separated rules to skip")
-    p.add_argument("--only", default="", help="comma-separated rules to run exclusively")
+    p.add_argument("--disable", default="",
+                   help="comma-separated rules to skip; the recap lists what did not run")
+    p.add_argument("--only", default="",
+                   help="comma-separated rules to run exclusively (everything else "
+                        "is reported as NOT CHECKED)")
     p.add_argument("--no-recap", action="store_true", help="verdict table only")
-    p.add_argument("-o", "--findings-out", default=None, help="findings CSV path")
+    p.add_argument("-o", "--findings-out", default=None,
+                   help="findings CSV path (default: lastlook.findings.csv)")
+
+
+class _Parser(argparse.ArgumentParser):
+    """argparse exits 2 on a usage error. Exit 2 is this tool's "BLOCKERS — do not
+    launch", so a typo'd flag was indistinguishable from a campaign that would
+    damage your domain. Usage errors are tool errors: exit 3."""
+
+    def error(self, message):
+        self.print_usage(sys.stderr)
+        print(f"lastlook: {message}", file=sys.stderr)
+        raise SystemExit(EXIT_ERROR)
 
 
 def build_parser():
-    ap = argparse.ArgumentParser(prog="lastlook", description=__doc__,
-                                 formatter_class=argparse.RawDescriptionHelpFormatter)
-    sub = ap.add_subparsers(dest="cmd")
+    ap = _Parser(prog="lastlook", description=__doc__,
+                 formatter_class=argparse.RawDescriptionHelpFormatter)
+    ap.add_argument("--version", action="version", version=f"lastlook {__version__}")
+    sub = ap.add_subparsers(dest="cmd", parser_class=_Parser)
 
-    p = sub.add_parser("pull", help="fetch a live campaign into normalized JSON")
-    p.add_argument("platform", choices=["instantly", "heyreach"])
+    p = sub.add_parser("pull", help="fetch a live campaign into normalized JSON",
+                       description="Fetch a live campaign and write it as normalized JSON. "
+                                   "No rendering, no checks.")
+    p.add_argument("platform", choices=["instantly", "heyreach"],
+                   help="which platform the campaign lives on")
     p.add_argument("--campaign", required=True, help="campaign name or id")
-    p.add_argument("--key", default=None)
-    p.add_argument("--max-leads", type=int, default=None)
-    p.add_argument("-o", "--out", default=None)
+    p.add_argument("--key", default=None,
+                   help="API key; defaults to the platform env var, .env, then a prompt")
+    p.add_argument("--max-leads", type=int, default=None,
+                   help="sample at most N leads (default: every lead)")
+    p.add_argument("-o", "--out", default=None, help="output path (default: campaign.json)")
     p.set_defaults(func=cmd_pull)
 
-    p = sub.add_parser("render", help="render every variant x lead message")
-    p.add_argument("campaign_json")
-    p.add_argument("-o", "--out", default=None)
+    p = sub.add_parser("render", help="render every variant x lead message",
+                       description="Render every (step, variant, lead) message exactly as it "
+                                   "would send. Writes JSONL, one message per line.")
+    p.add_argument("campaign_json", help="campaign JSON from `lastlook pull`")
+    p.add_argument("-o", "--out", default=None, help="output path (default: rendered.jsonl)")
     p.set_defaults(func=cmd_render)
 
-    p = sub.add_parser("check", help="run the rules over rendered messages")
-    p.add_argument("rendered")
+    p = sub.add_parser("check", help="run the rules over rendered messages",
+                       description="Run the rules over rendered messages. Pass --campaign-json "
+                                   "or the 19 campaign-level rules cannot run.")
+    p.add_argument("rendered", help="the .jsonl written by `lastlook render`")
     p.add_argument("--campaign-json", default=None,
                    help="enables the campaign-level rules (list, structure, handoffs)")
-    p.add_argument("--instantly-key", default=os.environ.get("INSTANTLY_API_KEY"))
+    p.add_argument("--instantly-key", default=os.environ.get("INSTANTLY_API_KEY"),
+                   help="key for the handoff check (default: $INSTANTLY_API_KEY)")
     _add_check_flags(p)
     p.set_defaults(func=cmd_check)
 
-    p = sub.add_parser("audit", help="pull, render and check in one pass")
-    p.add_argument("platform", choices=["instantly", "heyreach"])
-    p.add_argument("--campaign", required=True)
-    p.add_argument("--key", default=None)
-    p.add_argument("--max-leads", type=int, default=None)
-    p.add_argument("--instantly-key", default=os.environ.get("INSTANTLY_API_KEY"))
+    p = sub.add_parser("audit", help="pull, render and check in one pass",
+                       description="Pull, render and check a live campaign in one pass. "
+                                   "The command to reach for by default.")
+    p.add_argument("platform", choices=["instantly", "heyreach"],
+                   help="which platform the campaign lives on")
+    p.add_argument("--campaign", required=True, help="campaign name or id")
+    p.add_argument("--key", default=None,
+                   help="API key; defaults to the platform env var, .env, then a prompt")
+    p.add_argument("--max-leads", type=int, default=None,
+                   help="sample at most N leads (default: every lead)")
+    p.add_argument("--instantly-key", default=os.environ.get("INSTANTLY_API_KEY"),
+                   help="key for the handoff check (default: $INSTANTLY_API_KEY)")
     _add_check_flags(p)
     p.set_defaults(func=cmd_audit)
 
-    p = sub.add_parser("fix", help="show (and optionally apply) the safe fixes")
-    p.add_argument("campaign_json")
+    p = sub.add_parser("fix", help="show (and optionally apply) the safe fixes",
+                       description="Show the mechanical fixes as a diff. Without --apply "
+                                   "nothing is written anywhere.")
+    p.add_argument("campaign_json", help="campaign JSON from `lastlook pull`")
     p.add_argument("--apply", action="store_true", help="write template edits to the platform")
     p.add_argument("--yes", action="store_true", help="skip the typed confirmation")
     p.add_argument("--key", default=None)
     p.add_argument("--only-fixes", default=None, help="comma-separated fix ids")
-    p.add_argument("--data-out", default=None, help="CSV of suggested value corrections")
-    p.add_argument("--removals-out", default=None, help="CSV of leads worth excluding")
+    p.add_argument("--data-out", default=None,
+                   help="CSV of suggested value corrections (default: lastlook.fixes.csv)")
+    p.add_argument("--removals-out", default=None,
+                   help="CSV of leads worth excluding (default: lastlook.removals.csv)")
     p.add_argument("--communities", default=None,
                    help="comma-separated names, or a file: communities enrichment "
                         "mistakes for employers (Pavilion, Exit Five, ...)")
     p.set_defaults(func=cmd_fix)
 
-    p = sub.add_parser("coverage", help="merge-tag fill rate across the lead list")
-    p.add_argument("campaign_json")
-    p.add_argument("--min-fill", type=float, default=None)
+    p = sub.add_parser("coverage", help="merge-tag fill rate across the lead list",
+                       description="Fill rate per merge tag across the lead list: the "
+                                   "proactive view of the blank-merge problem.")
+    p.add_argument("campaign_json", help="campaign JSON from `lastlook pull`")
+    p.add_argument("--min-fill", type=float, default=None,
+                   help="flag variables filling below this %% (default: 95)")
     p.set_defaults(func=cmd_coverage)
+
+    p = sub.add_parser("fleet", help="audit many campaigns from a manifest, worst first",
+                       description="Audit every campaign in a manifest and rank them worst "
+                                   "first. Leads are sampled; re-run a flagged campaign in "
+                                   "full with `lastlook audit`.")
+    p.add_argument("--manifest", required=True,
+                   help='JSON list of {"platform","campaign","key","name"}')
+    p.add_argument("--label", default="", help="a name for this scan, used in the title")
+    p.add_argument("--max-leads", type=int, default=200,
+                   help="leads sampled per campaign (default: 200)")
+    p.add_argument("--out", default=None,
+                   help="summary CSV path (default: lastlook.fleet.<label>.csv)")
+    p.set_defaults(func=cmd_fleet)
 
     p = sub.add_parser("rules", help="print the rule catalog")
     p.set_defaults(func=cmd_rules)
@@ -478,7 +607,7 @@ def main(argv=None):
     args = ap.parse_args(argv)
     if not getattr(args, "func", None):
         ap.print_help()
-        return EXIT_CLEAR
+        return EXIT_ERROR      # nothing ran; 0 would read as "clear"
     try:
         return args.func(args)
     except SystemExit:
