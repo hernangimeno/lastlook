@@ -288,12 +288,12 @@ footer .r a:hover{color:var(--text)}
         <span class="cmd">lastlook audit instantly --campaign "Q3 Outbound"</span>
       </div>
       <pre id="termout"><span class="tl">================================================================</span>
-<span class="tl"><span class="r">🔴 NOT CLEAR — 6 distinct BLOCKER(S), 6 WARNING(S)</span></span>
+<span class="tl"><span class="r">🔴 NOT CLEAR: 6 distinct BLOCKER(S), 6 WARNING(S)</span></span>
 <span class="tl">================================================================</span>
 <span class="tl">Rendered 9 messages. <span class="w">3 of 3 leads would send with a blocker.</span></span>
 <span class="tl"> </span>
 <span class="tl"><span class="d">check                 issues   leads   example</span></span>
-<span class="tl"><span class="r">🔴 BLANK_MERGE</span>              4       4   <span class="d">e.g. {{company}} resolved blank with no fallback — sends a gap</span></span>
+<span class="tl"><span class="r">🔴 BLANK_MERGE</span>              4       4   <span class="d">e.g. {{company}} resolved blank with no fallback: sends a gap</span></span>
 <span class="tl"><span class="r">🔴 EM_DASH</span>                  1       3   <span class="d">e.g. subject: banned dash “following up — Acme”</span></span>
 <span class="tl"><span class="r">🔴 CLAYGENT_APOLOGY</span>         1       1   <span class="d">e.g. body: AI/enrichment artifact “BOB, I couldn't find recent in</span></span>
 <span class="tl"><span class="y">🟡 LEGAL_SUFFIX</span>             2       4   <span class="d">e.g. subject: legal suffix in name “is Globex Inc.'s paid spend…”</span></span>
@@ -306,20 +306,21 @@ footer .r a:hover{color:var(--text)}
 <span class="tl">================================================================</span>
 <span class="tl"><span class="w">START HERE → Clean the raw values in Clay/CRM  (~40 min)</span></span>
 <span class="tl">================================================================</span>
-<span class="tl">1. [MUST] Clean the raw values in Clay/CRM — 3 leads</span>
+<span class="tl">1. [MUST] Clean the raw values in Clay/CRM: 3 leads</span>
 <span class="tl"><span class="d">      · Title-case the raw CRM values</span></span>
 <span class="tl"><span class="d">      · Blank the failed AI-enrichment values</span></span>
 <span class="tl"><span class="d">      · Strip legal suffixes from company names</span></span>
-<span class="tl">2. [MUST] Edit the campaign copy — 3 leads</span>
-<span class="tl"><span class="d">      ~2 min — step 2 variant 2A</span></span>
+<span class="tl"><span class="d">      ~40 min: step 1 variant 1A, step 1 variant 1B, step 2 variant 2A</span></span>
+<span class="tl">2. [MUST] Edit the campaign copy: 3 leads</span>
+<span class="tl"><span class="d">      ~2 min: step 2 variant 2A</span></span>
 <span class="tl">3. [MUST] Add fallbacks, or enrich the blank fields</span>
 <span class="tl"><span class="d">      · Add fallbacks or enrich the blank fields</span></span>
 <span class="tl"><span class="d">      · Fix punctuation at the merge seam</span></span>
-<span class="tl"><span class="d">      ~20 min — step 1 variant 1A, step 1 variant 1B, step 2 variant 2A</span></span>
-<span class="tl">4. [then] Fix the campaign settings — 2 places</span>
+<span class="tl"><span class="d">      ~20 min: step 1 variant 1A, step 1 variant 1B, step 2 variant 2A</span></span>
+<span class="tl">4. [then] Fix the campaign settings: 2 places</span>
 <span class="tl"><span class="d">      · Give colliding variants distinct signals</span></span>
 <span class="tl"><span class="d">      · Clear the follow-up subject so it threads</span></span>
-<span class="tl"><span class="d">      ~7 min — step 1 variant 1A+1B, step 2 variant 2A</span></span>
+<span class="tl"><span class="d">      ~7 min: step 1 variant 1A+1B, step 2 variant 2A</span></span>
 <span class="tl"> </span>
 <span class="tl"><span class="g">Clean: 27 of 35 checks found nothing.</span></span>
 <span class="tl">4 fixes, roughly 1.1h total.</span>
@@ -335,8 +336,8 @@ footer .r a:hover{color:var(--text)}
   <div class="wrap">
     <h2>Four stages, with a plain file between them.</h2>
     <p class="lede">Run <span class="mono">audit</span> for the whole thing in one pass, or keep
-      the stages separate when you want to inspect what flows between them. Everything after the
-      adapter is platform-agnostic: adding a platform is one file.</p>
+      the stages separate when you want to inspect what flows between them. The stages after the
+      adapter never learn which platform produced the file, so adding a platform is one file.</p>
     <div class="pipe rv">
       <div class="stage">
         <div class="name">pull</div>
@@ -379,7 +380,7 @@ footer .r a:hover{color:var(--text)}
       <div class="cell c7 tint-r rv">
         <h3>Merge failures</h3>
         <p>It catches blank fields, tags with no value source, literal tags shipping, and merge
-          syntax the renderer can't parse. A campaign that renders zero messages is an error, never a pass.</p>
+          syntax the renderer can't parse. A campaign that renders zero messages is exit 3, not a verdict.</p>
         <div class="ev">Hi <span class="del">&nbsp;&nbsp;</span>, noticed <span class="del">{{company}}</span> is scaling ads.<br>
           <span class="dim">BLANK_MERGE · UNRESOLVED_VAR · UNDEFINED_TAG · UNKNOWN_SYNTAX</span></div>
       </div>
