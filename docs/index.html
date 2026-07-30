@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>lastlook · see every message before it sends</title>
-<meta name="description" content="A command-line tool that renders your Instantly or HeyReach campaign against every real lead and runs 35 checks on the output instead of the template. Open source, MIT.">
+<meta name="description" content="A command-line tool that renders your Instantly or HeyReach campaign against every real lead and runs 35 checks on the message each lead would get. Open source, MIT.">
 <link rel="canonical" href="https://hernangimeno.github.io/lastlook/">
 <meta property="og:title" content="lastlook · see every message before it sends">
 <meta property="og:description" content="Render every variant against every real lead. 35 checks on the output, not the template. Open source.">
@@ -257,14 +257,14 @@ footer .r a:hover{color:var(--text)}
       <h1>See every message<br><span class="acc">before it sends.</span></h1>
       <p class="sub">lastlook is a command-line tool for cold outreach. Point it at a live
         Instantly or HeyReach campaign and it pulls your real leads, renders every variant
-        against each one, and runs 35 checks on the messages your prospects would actually
-        get, not on the template you wrote.</p>
+        against each one, and runs 35 checks on the message each lead would get. A template
+        can look fine and still break on half your list.</p>
       <div class="install">
         <code id="pipcmd"><span class="p">$</span> pip install git+https://github.com/hernangimeno/lastlook</code>
         <button id="copybtn" aria-label="Copy install command">copy</button>
       </div>
       <p class="also">You get one verdict you can gate the launch on, a to-do list ordered by
-        blast radius, and a CSV of every broken lead. Or read <a href="#checks">the 35 checks</a> first.</p>
+        how many leads each problem hits, and a CSV of every lead that broke. Or read <a href="#checks">the 35 checks</a> first.</p>
     </div>
 
     <div class="demo rv" role="group" aria-label="One template rendered against three real leads">
