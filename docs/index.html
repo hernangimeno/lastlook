@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>lastlook · see every message before it sends</title>
-<meta name="description" content="lastlook renders your Instantly or HeyReach campaign against every real lead and runs 35 checks on the output, not the template. Open source, MIT.">
+<meta name="description" content="A command-line tool that renders your Instantly or HeyReach campaign against every real lead and runs 35 checks on the output instead of the template. Open source, MIT.">
 <link rel="canonical" href="https://hernangimeno.github.io/lastlook/">
 <meta property="og:title" content="lastlook · see every message before it sends">
 <meta property="og:description" content="Render every variant against every real lead. 35 checks on the output, not the template. Open source.">
@@ -255,13 +255,16 @@ footer .r a:hover{color:var(--text)}
   <div class="wrap">
     <div>
       <h1>See every message<br><span class="acc">before it sends.</span></h1>
-      <p class="sub">lastlook renders your cold campaign against every real lead, then runs
-        35 checks on the output, not the template.</p>
+      <p class="sub">lastlook is a command-line tool for cold outreach. Point it at a live
+        Instantly or HeyReach campaign and it pulls your real leads, renders every variant
+        against each one, and runs 35 checks on the messages your prospects would actually
+        get, not on the template you wrote.</p>
       <div class="install">
         <code id="pipcmd"><span class="p">$</span> pip install git+https://github.com/hernangimeno/lastlook</code>
         <button id="copybtn" aria-label="Copy install command">copy</button>
       </div>
-      <p class="also">Works with Instantly and HeyReach. Or read <a href="#checks">the 35 checks</a> first.</p>
+      <p class="also">You get one verdict you can gate the launch on, a to-do list ordered by
+        blast radius, and a CSV of every broken lead. Or read <a href="#checks">the 35 checks</a> first.</p>
     </div>
 
     <div class="demo rv" role="group" aria-label="One template rendered against three real leads">
@@ -282,9 +285,10 @@ footer .r a:hover{color:var(--text)}
 <section class="tight">
   <div class="wrap">
     <h2>One command renders and judges the whole campaign.</h2>
-    <p class="lede">Every check is deterministic and runs on 100% of the rendered messages. You
-      get a verdict you can gate a launch on, and a recap that groups the fixes by the action
-      that clears them. This is the tool's own output:</p>
+    <p class="lede">Every check is deterministic, and an audit runs all of them on 100% of the rendered
+      messages. Anything that could not run gets named in a NOT CHECKED block, so a rule that
+      sat out never counts as clean. You get a verdict you can gate a launch on, and a recap
+      that groups the fixes by the action that clears them. This is the tool's own output:</p>
     <div class="term rv">
       <div class="term-bar"><i></i><i></i><i></i>
         <span class="cmd">lastlook audit instantly --campaign "Q3 Outbound"</span>
@@ -339,7 +343,9 @@ footer .r a:hover{color:var(--text)}
     <h2>Four stages, with a plain file between them.</h2>
     <p class="lede">Run <span class="mono">audit</span> for the whole thing in one pass, or keep
       the stages separate when you want to inspect what flows between them. The stages after the
-      adapter never learn which platform produced the file, so adding a platform is one file.</p>
+      adapter never learn which platform produced the file, so adding a platform is one file.
+      With more than one campaign live, <span class="mono">fleet</span> audits a whole list of
+      them and ranks the results worst first.</p>
     <div class="pipe rv">
       <div class="stage">
         <div class="name">pull</div>
@@ -399,14 +405,16 @@ footer .r a:hover{color:var(--text)}
       <div class="cell c8 tint-y rv">
         <h3>The lead list itself</h3>
         <p>The lead check looks for duplicates, role inboxes, invalid addresses, free-mail in a
-          B2B list, and five colleagues getting the same message. These are the only failures that
+          B2B list, and too many contacts at one domain. These are the only failures that
           burn the sending domain instead of one message.</p>
         <div class="ev"><span class="del">info@acme.com</span> · <span class="del">jane@acme,com</span> · jane@acme.com <span class="dim">appears twice</span> · <span class="dim">7 contacts at one domain</span></div>
       </div>
       <div class="cell c5 rv">
         <h3>Copy hygiene</h3>
-        <p>It finds invisible characters pasted from Docs, spam vocabulary, editing scaffolding,
-          and any banned terms you supply. A previous client's name in a recycled template blocks the launch.</p>
+        <p>Docs paste leaves invisible characters behind. lastlook finds those, plus spam
+          vocabulary, editing scaffolding, and any banned terms you supply. It checks the
+          templates and the rendered output, because a previous client's name usually arrives
+          through the data.</p>
         <div class="ev"><span class="del">U+200B</span> inside a word · <span class="del">[insert case study]</span> · <span class="del">lorem ipsum</span></div>
       </div>
       <div class="cell c7 tint-g rv">
@@ -420,7 +428,7 @@ footer .r a:hover{color:var(--text)}
     </div>
 
     <div class="wall rv">
-      <div class="wall-h"><h3>The full catalog</h3><span>run lastlook rules for the live list</span></div>
+      <div class="wall-h"><h3>The full catalog</h3><span>19 can block a launch · 16 warn · run lastlook rules for the live list</span></div>
       <div class="rules" aria-label="Blocker rules">
         <span class="rule b">DATA_GAP</span><span class="rule b">BLANK_MERGE</span><span class="rule b">UNDEFINED_TAG</span><span class="rule b">UNRESOLVED_VAR</span><span class="rule b">UNKNOWN_SYNTAX</span><span class="rule b">DANGLING_TEXT</span><span class="rule b">CLAYGENT_APOLOGY</span><span class="rule b">EM_DASH</span><span class="rule b">LENGTH</span><span class="rule b">PLACEHOLDER_TEXT</span><span class="rule b">FORBIDDEN_TERM</span><span class="rule b">VARIANT_NOT_DISTINCT</span><span class="rule b">EMPTY_SUBJECT</span><span class="rule b">LEAD_NO_EMAIL</span><span class="rule b">LEAD_INVALID_EMAIL</span><span class="rule b">LEAD_DUPLICATE</span><span class="rule b">LEAD_ROLE_ADDRESS</span><span class="rule b">BROKEN_HANDOFF</span><span class="rule b">STEPS_NOT_PACED</span>
       </div>
