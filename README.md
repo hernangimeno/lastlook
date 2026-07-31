@@ -280,19 +280,12 @@ is mechanical rather than a matter of remembering.
 
 ## Contributing
 
-Issues and pull requests are welcome. `main` is protected and every PR needs a
-review from the code owner before it merges, because this tool writes to live
-campaigns and a bad merge damages a stranger's sending domain, not a test fixture.
-
-Before you open a PR:
-
-```bash
-python3 tests/run_all.py       # must print ALL PASS
-```
-
-A new rule needs two tests: one that fires it, and a near-miss that must stay
-quiet. The second one is the one that matters — a checker that cries wolf on
-clean copy gets uninstalled, and then it protects nobody.
+Issues and pull requests are welcome. Read [CONTRIBUTING.md](CONTRIBUTING.md)
+for local setup, fixture and privacy rules, the required test coverage, and the
+review process. The suite must finish with `ALL PASS`; for an adapter or
+credential change, a live path through either Instantly or HeyReach must pass.
+`main` is protected: every PR needs code-owner approval before it merges because
+this tool writes to live campaigns.
 
 ## License
 
