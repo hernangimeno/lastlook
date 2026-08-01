@@ -98,6 +98,39 @@ try:
 except check.UnsafeURL as exc:
     t("allows a public HTTPS address", str(exc), "allowed")
 
+print("\n— a rule reported as skipped must never also fire —")
+# LEGAL_SUFFIX is emitted per rendered row; listing it as campaign-only made
+# the recap print "NOT CHECKED: needs --campaign-json" in the same output
+# where a LEGAL_SUFFIX finding appeared.
+rows_ls = [{"subject": "", "body": "We loved what Acme Inc is building",
+            "step": 1, "variant": "A", "channel": "email", "limits": {}}]
+t("LEGAL_SUFFIX fires without campaign json",
+  [f["check"] for f in check.run(rows_ls, set())], ["LEGAL_SUFFIX"])
+t("LEGAL_SUFFIX is accounted as ran without campaign json",
+  "LEGAL_SUFFIX" in check.rules_actually_run(campaign_json=None)[0], True)
+
+print("\n— bare tokens are not enrichment apologies —")
+# "NA sales team" and "the null hypothesis" are ordinary B2B English. Phrases
+# stay blockers; bare tokens warn; bare "na" is gone entirely.
+t("'NA sales team' does not fire",
+  check.chk_claygent({"subject": "", "body": "our NA sales team"}), [])
+t("'null hypothesis' warns, not blocks",
+  [x[1] for x in check.chk_claygent({"subject": "", "body": "the null hypothesis"})],
+  [check.WARNING])
+t("'n/a' token warns",
+  [x[1] for x in check.chk_claygent({"subject": "", "body": "revenue: n/a"})],
+  [check.WARNING])
+t("an apology phrase still blocks",
+  [x[1] for x in check.chk_claygent({"subject": "", "body": "I couldn't find information"})],
+  [check.BLOCKER])
+
+print("\n— legal-suffix matches suffixes, not words that contain them —")
+for text, want in [("the co-founder of Acme", None), ("visit acme.co today", None),
+                   ("the SA team", None), ("Acme Co. is here", "Co."),
+                   ("Acme Inc is growing", "Inc"), ("Acme GmbH rocks", "GmbH")]:
+    m = check.LEGAL_SUFFIX_RE.search(text)
+    t(f"legal suffix on {text!r}", m.group() if m else None, want)
+
 print("\n— the guard is wired into the run —")
 t("UNKNOWN_SYNTAX is in the per-row checks",
   check.chk_unknown_syntax in check.PER_ROW_CHECKS, True)

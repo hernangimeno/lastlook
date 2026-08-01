@@ -116,6 +116,22 @@ def run_schema():
             failures += 1
         except CampaignError:
             print(f"PASS  {label} is rejected")
+    # Lead-field strictness is scoped to fields something downstream .strip()s.
+    # last_name/company_domain have no such consumer — rejecting them broke
+    # pulls without preventing anything.
+    base = {"platform": "x", "campaign": {"name": "n"}, "steps": []}
+    try:
+        validate(dict(base, leads=[{"last_name": 7, "company_domain": 9}]))
+        print("PASS  unconsumed lead fields accept non-strings")
+    except CampaignError as e:
+        print(f"FAIL  unconsumed lead field rejected: {e}")
+        failures += 1
+    try:
+        validate(dict(base, leads=[{"email": 7}]))
+        print("FAIL  numeric email was accepted")
+        failures += 1
+    except CampaignError:
+        print("PASS  numeric email is rejected")
     return failures
 
 
@@ -179,6 +195,21 @@ def run_cli():
         ("unwritable render output -> 3", ["render", clean, "-o", "/_nodir_/x.jsonl"], 3),
     ]:
         r = subprocess.run([sys.executable, "-m", "lastlook.cli"] + argv,
+                           cwd=ROOT, capture_output=True, text=True)
+        ok = r.returncode == want
+        failures += not ok
+        print(f"{'PASS' if ok else 'FAIL'}  {label} (got {r.returncode})")
+
+    # The module entry point (`python3 -m lastlook.check`) shares the exit
+    # contract. It used to return None (exit 0) over blockers and let a platform
+    # error traceback out at exit 1 — both documented as passing.
+    for label, argv, want in [
+        ("module check: blockers -> 2", ["--in", "/tmp/_ll.jsonl"], 2),
+        ("module check: missing file -> 3", ["--in", "/tmp/_nope.jsonl"], 3),
+        ("module check: usage error -> 3", [], 3),
+        ("module check: rule catalog -> 0", ["--list-rules"], 0),
+    ]:
+        r = subprocess.run([sys.executable, "-m", "lastlook.check"] + argv,
                            cwd=ROOT, capture_output=True, text=True)
         ok = r.returncode == want
         failures += not ok

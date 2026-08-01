@@ -21,6 +21,7 @@ import json
 import os
 import re
 import socket
+import sys
 from collections import Counter, defaultdict
 
 import difflib
@@ -107,12 +108,15 @@ CLAYGENT_RE = re.compile(
     r"|no\s+(?:information|data)\s+(?:available|found)"
     r"|not\s+enough\s+information"
     r"|i\s+don'?t\s+have\s+enough"
-    r"|based\s+on\s+the\s+(?:provided|available)"
-    r"|n/?a\b"
-    r"|null\b"
-    r"|undefined\b)",
+    r"|based\s+on\s+the\s+(?:provided|available))",
     re.IGNORECASE,
 )
+# Bare tokens split out of the phrase pattern above, at WARNING not BLOCKER:
+# "NA sales team" (North America) and "the null hypothesis" are ordinary B2B
+# English, so a bare token cannot be asserted as an enrichment artifact the way
+# "I couldn't find" can. Bare "na" is dropped entirely — the slash form is the
+# real Claygent tell; "na" alone matched every regional abbreviation.
+CLAYGENT_TOKEN_RE = re.compile(r"\b(n/a|null|undefined)\b", re.IGNORECASE)
 # All-caps tokens only matter where a NAME lands — after a greeting or "at <co>".
 # Scanning whole-body prose just flags legitimate acronyms (EDC, GCP, ICH...).
 # Require 2+ leading caps so "Jane" is fine but "BOB"/"JANE" are flagged.
@@ -120,7 +124,13 @@ CLAYGENT_RE = re.compile(
 GREETING_NAME_RE = re.compile(r"(?:Hi|Hey|Hello|Dear|HI|HEY)[\s,]+([A-Z]{2,}[A-Z'’.-]*)\b", re.MULTILINE)
 START_NAME_RE = re.compile(r"^\s*([A-Z]{2,}[A-Z'’.-]*)\s*,", re.MULTILINE)
 AT_COMPANY_RE = re.compile(r"\bat\s+([A-Z]{2,}[A-Z'’.-]*)\b")
-LEGAL_SUFFIX_RE = re.compile(r"\b(inc|llc|ltd|corp|gmbh|co|sa|srl|bv|plc)\.?\b", re.IGNORECASE)
+# "co" needs its period ("Acme Co." fires, "co-founder" and "acme.co" don't);
+# "sa" is dropped — it matched "SA team" / South Africa far more often than a
+# bare "Nestlé SA", which is the accepted miss. Lookarounds instead of \b so a
+# hyphen or a domain dot on either side never counts as a word edge.
+LEGAL_SUFFIX_RE = re.compile(
+    r"(?<![\w.\-])(?:(?:inc|llc|ltd|corp|gmbh|srl|bv|plc)\.?|co\.)(?![\w\-])",
+    re.IGNORECASE)
 URL_RE = re.compile(r"https?://|www\.|\b\w+\.(?:com|io|ai|co|net|org)\b", re.IGNORECASE)
 LEFTOVER_VAR_RE = re.compile(r"\{\{.*?\}\}|\{[^{}]*\|[^{}]*\}")
 EMDASH_RE = re.compile(r"[—–]")  # em dash and en dash both banned in copy
@@ -247,6 +257,13 @@ def chk_claygent(row):
             # one bad Claygent output, however many variants render it.
             out.append(("CLAYGENT_APOLOGY", BLOCKER,
                         f"{field}: AI/enrichment artifact “{_snip(row[field], m)}”",
+                        f"{DATA_SIG}ai:{m.group().lower()}"))
+            continue
+        m = CLAYGENT_TOKEN_RE.search(row.get(field, ""))
+        if m:
+            out.append(("CLAYGENT_APOLOGY", WARNING,
+                        f"{field}: enrichment-artifact token “{_snip(row[field], m)}” "
+                        f"— may be legitimate prose, check the source value",
                         f"{DATA_SIG}ai:{m.group().lower()}"))
     return out
 
@@ -450,6 +467,11 @@ def _assert_public_http_url(url):
     copy into access to localhost, cloud metadata, or another private service.
     This guard is also installed as an httpx request hook, so every redirect is
     checked rather than only the URL visible in the template.
+
+    Known limitation: the check resolves DNS and httpx resolves it again at
+    connect time, so a host that rebinds between the two lookups can slip
+    through. Closing that needs an IP-pinning transport; out of scope for a
+    WARNING-level link probe.
     """
     import httpx
 
@@ -516,9 +538,15 @@ def chk_link_health(rows, enabled):
         try:
             _assert_public_http_url(u)
             resp = cx.get(u)
-            return (u, step, variant, f"HTTP {resp.status_code}") if resp.status_code >= 400 else None
+            if resp.status_code >= 400:
+                return (u, step, variant, f"dead link (HTTP {resp.status_code})")
+            return None
+        except UnsafeURL as e:
+            # Refused, not probed. Reporting this as "dead" asserted a
+            # measurement that never happened.
+            return (u, step, variant, f"not probed ({e})")
         except Exception as e:
-            return (u, step, variant, type(e).__name__)
+            return (u, step, variant, f"unreachable ({type(e).__name__})")
 
     with ThreadPoolExecutor(max_workers=min(8, len(urls))) as pool:
         results = list(pool.map(probe, urls.items()))
@@ -534,7 +562,7 @@ def chk_link_health(rows, enabled):
             # low-priority: surfaces only when a link is actually dead, and as a
             # warning so it never blocks an otherwise-clean launch
             "check": "LINK_HEALTH", "severity": WARNING,
-            "evidence": f"dead link ({why}): {u[:80]}",
+            "evidence": f"{why}: {u[:80]}",
         })
     return out
 
@@ -1126,8 +1154,11 @@ def load_spam_words(path):
 # Rules that read the campaign JSON, not the rendered rows. Without --campaign-json
 # they cannot run at all. They used to silently not run while the recap still said
 # "35 checks ran" — a campaign looking clean because nobody looked.
+# LEGAL_SUFFIX is NOT here: chk_casing emits it per rendered row, so it runs
+# fine without the campaign JSON — listing it here made the recap say "NOT
+# CHECKED" in the same output where a LEGAL_SUFFIX finding was printed.
 CAMPAIGN_ONLY_RULES = {
-    "NAME_QUALITY", "COMPANY_QUALITY", "LEGAL_SUFFIX", "UNDEFINED_TAG",
+    "NAME_QUALITY", "COMPANY_QUALITY", "UNDEFINED_TAG",
     "LEAD_DUPLICATE", "LEAD_ROLE_ADDRESS", "LEAD_INVALID_EMAIL", "LEAD_FREEMAIL",
     "LEAD_NO_EMAIL", "LEAD_OVER_CONTACT", "PLACEHOLDER_TEXT",
     "VARIANT_NOT_DISTINCT", "SHARED_OPENER", "EMPTY_SUBJECT", "SUBJECT_STYLE",
@@ -1212,7 +1243,9 @@ RULE_SEVERITY = {
     "UNKNOWN_SYNTAX": "BLOCKER",
     "DANGLING_TEXT": "either",
     "DOUBLE_PUNCT": "WARNING",
-    "CLAYGENT_APOLOGY": "BLOCKER",
+    # phrases ("I couldn't find") block; bare tokens (n/a, null) only warn —
+    # they can be legitimate prose ("the null hypothesis").
+    "CLAYGENT_APOLOGY": "either",
     "EM_DASH": "BLOCKER",
     "CASING": "WARNING",
     "LEGAL_SUFFIX": "WARNING",
@@ -1336,8 +1369,31 @@ def verdict_block(rows, findings):
     return "\n".join(lines)
 
 
+class _Parser(argparse.ArgumentParser):
+    def error(self, message):
+        # argparse's default exit for a usage error is 2, which this tool
+        # documents as "blockers found". A usage error is a TOOL error: 3.
+        self.print_usage(sys.stderr)
+        print(f"lastlook-check: {message}", file=sys.stderr)
+        raise SystemExit(3)
+
+
 def main():
-    ap = argparse.ArgumentParser(description="Run preflight checks over rendered messages.")
+    # Same exit contract as the packaged CLI: 0 clear, 1 warnings, 2 blockers,
+    # 3 tool error. This entry point used to return None (exit 0) over a
+    # blocker-riddled run and let a platform 401 escape as a traceback (exit 1,
+    # "warnings only") — both false greens.
+    try:
+        raise SystemExit(_main())
+    except SystemExit:
+        raise
+    except Exception as e:  # noqa: BLE001 — the module-CLI boundary
+        print(f"lastlook-check: {type(e).__name__}: {e}", file=sys.stderr)
+        raise SystemExit(3)
+
+
+def _main():
+    ap = _Parser(description="Run preflight checks over rendered messages.")
     # Not argparse-required: --list-rules is a valid invocation with no input.
     ap.add_argument("--in", dest="infile", default=None)
     ap.add_argument("--out", dest="outfile", default=None, help="findings CSV (default: beside input)")
@@ -1361,7 +1417,7 @@ def main():
         print(f"{len(RULES)} rules\n")
         for name, desc in RULES.items():
             print(f"  {name:<{width}}  {desc}")
-        return
+        return 0
     if not args.infile:
         ap.error("--in is required (or use --list-rules)")
 
@@ -1403,6 +1459,10 @@ def main():
 
     print(verdict_block(rows, findings))
     print(f"\nFull findings -> {out}")
+    severities = {f["severity"] for f in findings}
+    if BLOCKER in severities:
+        return 2
+    return 1 if WARNING in severities else 0
 
 
 if __name__ == "__main__":

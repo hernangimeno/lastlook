@@ -120,7 +120,9 @@ def _load_dotenv():
                 k, v = k.strip(), v.strip().strip("\"'")
                 if k and k not in os.environ:
                     os.environ[k] = v
-    except OSError:
+    except (OSError, UnicodeDecodeError, ValueError):
+        # This runs BEFORE the CLI's exception boundary. A UTF-16 .env from
+        # Windows Notepad must degrade to "no .env", not a traceback exit 1.
         pass
 
 

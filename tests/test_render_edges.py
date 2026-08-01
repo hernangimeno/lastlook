@@ -157,6 +157,26 @@ with httpx.Client(base_url="https://api.heyreach.io",
     case("HeyReach paginates when totalCount is absent",
          len(heyreach.fetch_list_leads(cx, 1)), 101)
 
+# --- INMAIL node with an explicit "messages": null must not crash the pull ---
+steps_null, handoffs_null = heyreach.walk_sequence(
+    {"nodeType": "INMAIL", "payload": {"messages": None}})
+case("INMAIL with null messages emits an empty step, not a crash",
+     (len(steps_null), steps_null[0]["variants"]), (1, []))
+
+# --- platform lead values arrive uncoerced; a numeric firstName is a real CSV ---
+def int_name_handler(request):
+    return httpx.Response(200, json={"items": [
+        {"profileUrl": "https://linkedin.example/x", "firstName": 2024,
+         "lastName": "Doe", "companyName": 3.5}], "totalCount": 1})
+
+
+with httpx.Client(base_url="https://api.heyreach.io",
+                  transport=httpx.MockTransport(int_name_handler)) as cx:
+    ld = heyreach.fetch_list_leads(cx, 1)[0]
+    case("HeyReach coerces a numeric firstName to str",
+         (ld["first_name"], ld["company_name"]), ("2024", "3.5"))
+    case("full_name concat survives the numeric value", ld["full_name"], "2024 Doe")
+
 from lastlook import fleet
 real_pull = fleet.pull_instantly.pull
 fleet.pull_instantly.pull = lambda *args: {
@@ -170,6 +190,26 @@ except ValueError:
     case("fleet refuses a zero-message false clear", "ValueError", "ValueError")
 finally:
     fleet.pull_instantly.pull = real_pull
+
+# --- fleet must SAY when the handoff check sat out, and never say CLEAR ---
+real_hr_pull = fleet.pull_heyreach.pull
+fleet.pull_heyreach.pull = lambda *args: {
+    "platform": "heyreach", "campaign": {"id": "9", "name": "LI"},
+    "steps": [{"step": 1, "channel": "message",
+               "variants": [{"id": "A", "subject": "", "body": "clean copy"}]}],
+    "leads": [{"id": "l1"}],
+    "handoffs": [{"type": "SEND_LEAD_TO_INSTANTLY", "targetId": "t1"}],
+}
+_saved_ikey = os.environ.pop("INSTANTLY_API_KEY", None)
+try:
+    row = fleet.scan_one({"platform": "heyreach", "campaign": "9", "key": "k"}, 200)
+    case("fleet without an Instantly key is not CLEAR", row["verdict"], "CAUTION")
+    case("fleet names the unchecked rule",
+         "BROKEN_HANDOFF not checked" in row["top_blocker"], True)
+finally:
+    fleet.pull_heyreach.pull = real_hr_pull
+    if _saved_ikey is not None:
+        os.environ["INSTANTLY_API_KEY"] = _saved_ikey
 
 # --- unknown platform dies with a sentence and exit 3 ---
 try:

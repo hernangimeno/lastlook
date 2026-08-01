@@ -57,6 +57,25 @@ t("clean copy is untouched",
   fix.fix_text("Hi {{firstName}},\n\nAll good at {{company}}.\n\nHernan")[0],
   "Hi {{firstName}},\n\nAll good at {{company}}.\n\nHernan")
 
+print("\n— a merge tag's NAME is an identifier, never prose —")
+# {{Q1–Q2 Goal}} -> {{Q1-Q2 Goal}} stops resolving: the fixer would have broken
+# personalization on live copy while the prose around it was the actual defect.
+t("en dash inside a tag survives, prose em dash is fixed",
+  fix.fix_text("Your {{Q1–Q2 Goal}} is live — see it", "instantly")[0],
+  "Your {{Q1–Q2 Goal}} is live - see it")
+t("double space inside a tag survives, prose double space is fixed",
+  fix.fix_text("See {{Company  Name}} and this  gap", "instantly")[0],
+  "See {{Company  Name}} and this gap")
+t("doubled period inside a tag survives",
+  fix.fix_text("Ref {{Acct..ID}} today", "instantly")[0], "Ref {{Acct..ID}} today")
+t("raw single-brace HeyReach tag survives, seam space is fixed",
+  fix.fix_text("Hey {FIRST  NAME} , welcome", "heyreach")[0],
+  "Hey {FIRST  NAME}, welcome")
+t("spintax stays editable (it is prose)",
+  fix.fix_text("Pick {fast|slow}  option", "instantly")[0], "Pick {fast|slow} option")
+t("prose right after a tag is still fixed",
+  fix.fix_text("Hi {{firstName}} ,", "instantly")[0], "Hi {{firstName}},")
+
 print("\n— foreign merge tags —")
 t("instantly: single-brace converted",
   fix._foreign_tags("Hey {FIRST_NAME},", "instantly"), "Hey {{firstName}},")
@@ -113,6 +132,11 @@ t("Instantly patches an exact live match",
   fix._patch_instantly_sequences(patched, instant_edit), 1)
 t("Instantly applies the planned replacement",
   patched[0]["steps"][0]["variants"][0]["body"], "Hey {{firstName}},")
+# The schema allows string steps; the writer's counter is an int. Raw
+# comparison made every schema-legal string-step edit abort as "missing".
+patched = copy.deepcopy(instant_sequences)
+t("Instantly patches a schema-legal STRING step key",
+  fix._patch_instantly_sequences(patched, [dict(instant_edit[0], step="1")]), 1)
 for label, live in (
         ("Instantly refuses copy changed since pull", "Someone edited this"),
         ("Instantly refuses a missing planned field", None)):
@@ -129,7 +153,7 @@ for label, live in (
         t(label, "StaleCampaign", "StaleCampaign")
 
 hr_tree = {"nodeType": "MESSAGE", "payload": {"messages": ["Hey {FIRST_NAME}  ,"]}}
-hr_edit = {(1, "A", "body"): {
+hr_edit = {("1", "A", "body"): {
     "step": 1, "variant": "A", "field": "body",
     "before": "Hey {{first_name}}  ,", "after": "Hey {{first_name}},",
 }}

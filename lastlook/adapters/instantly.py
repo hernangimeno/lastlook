@@ -32,6 +32,13 @@ UA = "lastlook/0.1 (+https://github.com/hernangimeno/lastlook)"
 PAGE = 100
 
 
+def _s(value):
+    """None stays None; everything else becomes str. The platforms return
+    whatever the user imported (a numeric first_name is a real CSV artifact),
+    and validate.py rightly refuses non-strings — coerce at the boundary."""
+    return None if value is None else str(value)
+
+
 def client(api_key):
     return httpx.Client(
         base_url=BASE,
@@ -143,11 +150,11 @@ def fetch_leads(cx, campaign_id, max_leads=None):
         for ld in items:
             leads.append({
                 "id": ld.get("id") or ld.get("email"),
-                "email": ld.get("email"),
-                "first_name": ld.get("first_name"),
-                "last_name": ld.get("last_name"),
-                "company_name": ld.get("company_name"),
-                "company_domain": ld.get("company_domain"),
+                "email": _s(ld.get("email")),
+                "first_name": _s(ld.get("first_name")),
+                "last_name": _s(ld.get("last_name")),
+                "company_name": _s(ld.get("company_name")),
+                "company_domain": _s(ld.get("company_domain")),
                 "payload": ld.get("payload") or {},        # custom variables
             })
         next_cursor = None if isinstance(data, list) else data.get("next_starting_after")
@@ -182,7 +189,9 @@ def pull(api_key, campaign, max_leads=None):
             defined.update(src)
     return {
         "platform": "instantly",
-        "campaign": {"id": cid, "name": c.get("name", "")},
+        # `or ""` not a .get default: a platform can return an explicit null,
+        # which .get's default does not catch and validate rightly rejects.
+        "campaign": {"id": cid, "name": c.get("name") or ""},
         "steps": steps, "leads": leads, "handoffs": [],
         "defined_vars": sorted(defined.keys()),   # the campaign's known variables
     }
@@ -198,7 +207,11 @@ def main():
     args = ap.parse_args()
 
     if not args.api_key:
-        sys.exit("ERROR: no API key. Pass --api-key or set INSTANTLY_API_KEY.")
+        # sys.exit(str) exits 1, which downstream tooling reads as "warnings
+        # only" — a missing key is a tool error, exit 3, same as the CLI.
+        print("ERROR: no API key. Pass --api-key or set INSTANTLY_API_KEY.",
+              file=sys.stderr)
+        sys.exit(3)
 
     normalized = pull(args.api_key, args.campaign, args.max_leads)
     cid = normalized["campaign"]["id"]

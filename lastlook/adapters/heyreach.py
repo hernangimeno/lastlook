@@ -34,6 +34,12 @@ BASE = "https://api.heyreach.io"
 UA = "lastlook/0.1 (+https://github.com/hernangimeno/lastlook)"
 PAGE = 100
 
+
+def _s(value):
+    """None stays None; everything else becomes str. A numeric firstName from
+    an imported CSV crashed the full_name concat below and failed validate."""
+    return None if value is None else str(value)
+
 # HeyReach personalizes with single-brace tags like {FIRST_NAME}, {COMPANY}.
 # render.py speaks canonical {{field}}, so the adapter rewrites them here and
 # maps HeyReach's standard tokens onto the lead fields this adapter emits.
@@ -97,7 +103,9 @@ def walk_sequence(node, step_no=0, steps=None, handoffs=None):
         fb = pl.get("fallbackMessage")
         variants = []
         if ntype == "INMAIL":
-            msgs = pl.get("messages", [])
+            # `or []`, matching the branch below: a node can carry an explicit
+            # "messages": null, and enumerate(None) crashed the whole pull.
+            msgs = pl.get("messages") or []
             for i, m in enumerate(msgs):
                 variants.append({
                     "id": chr(ord("A") + i),
@@ -153,17 +161,17 @@ def fetch_list_leads(cx, list_id, max_leads=None):
             raise RuntimeError("HeyReach returned a non-list 'items' field")
         for ld in items:
             cf = {c.get("name"): c.get("value") for c in (ld.get("customFields") or [])}
-            fn, ln_ = ld.get("firstName") or "", ld.get("lastName") or ""
+            fn, ln_ = _s(ld.get("firstName")) or "", _s(ld.get("lastName")) or ""
             leads.append({
                 "id": ld.get("profileUrl") or ld.get("emailAddress"),
-                "email": ld.get("emailAddress"),
-                "first_name": ld.get("firstName"),
-                "last_name": ld.get("lastName"),
+                "email": _s(ld.get("emailAddress")),
+                "first_name": _s(ld.get("firstName")),
+                "last_name": _s(ld.get("lastName")),
                 "full_name": (fn + " " + ln_).strip() or None,
-                "company_name": ld.get("companyName"),
-                "headline": ld.get("headline"),
-                "position": ld.get("position"),
-                "location": ld.get("location"),
+                "company_name": _s(ld.get("companyName")),
+                "headline": _s(ld.get("headline")),
+                "position": _s(ld.get("position")),
+                "location": _s(ld.get("location")),
                 "payload": cf,
             })
         offset += len(items)
@@ -191,7 +199,10 @@ def pull(api_key, campaign_id, max_leads=None):
         leads = fetch_list_leads(cx, list_id, max_leads) if list_id else []
     return {
         "platform": "heyreach",
-        "campaign": {"id": campaign_id, "name": meta.get("name", "")},
+        # str(): a fleet manifest can carry the id as a bare number, and
+        # validate requires a string. `or ""` catches an explicit null name,
+        # which .get's default does not.
+        "campaign": {"id": str(campaign_id), "name": meta.get("name") or ""},
         "steps": steps, "leads": leads, "handoffs": handoffs,
     }
 
@@ -206,7 +217,10 @@ def main():
     args = ap.parse_args()
 
     if not args.api_key:
-        sys.exit("ERROR: no API key. Pass --api-key or set HEYREACH_API_KEY.")
+        # sys.exit(str) exits 1 — "warnings only" downstream. Tool error: 3.
+        print("ERROR: no API key. Pass --api-key or set HEYREACH_API_KEY.",
+              file=sys.stderr)
+        sys.exit(3)
 
     normalized = pull(args.api_key, args.campaign, args.max_leads)
     steps, leads, handoffs = normalized["steps"], normalized["leads"], normalized["handoffs"]

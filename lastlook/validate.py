@@ -6,8 +6,8 @@ structure the engine actually depends on and names the offending field.
 
 Hand-rolled rather than pulling in `jsonschema`, because the only install-time
 dependency is httpx and one more package is a real cost for a CLI people try
-once. The tests validate every fixture against the real schema, so the two
-cannot drift silently.
+once. Nothing loads the JSON schema at runtime and the tests exercise THIS
+module, not that file — when the contract changes, both must be edited by hand.
 
 The contract that matters: fail loudly and specifically. A campaign that
 half-renders because a field was the wrong type produces a verdict over partial
@@ -115,7 +115,10 @@ def validate(campaign):
         if lead_id is not None and (isinstance(lead_id, bool)
                                     or not isinstance(lead_id, (str, int))):
             raise CampaignError(f"leads[{i}].id must be a string or integer")
-        for field in ("email", "first_name", "last_name", "company_name", "company_domain"):
+        # Only the fields something downstream calls .strip() on. last_name and
+        # company_domain have no consumer that assumes str (the renderer
+        # coerces), so rejecting them broke pulls without preventing anything.
+        for field in ("email", "first_name", "company_name"):
             value = lead.get(field)
             if value is not None and not isinstance(value, str):
                 raise CampaignError(f"leads[{i}].{field} must be a string or null")

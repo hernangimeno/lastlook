@@ -67,7 +67,13 @@ def scan_one(entry, max_leads):
     rows = list(render.iter_rendered(norm))
     if not rows:
         raise ValueError("rendered 0 messages — nothing was checked")
-    findings = check.run(rows, check.load_spam_words(None), norm, None)
+    # BROKEN_HANDOFF needs an Instantly key even on a HeyReach campaign. This
+    # was hardcoded None, so fleet printed CLEAR over handoffs nobody verified.
+    instantly_key = os.environ.get(ENV_VAR["instantly"])
+    findings = check.run(rows, check.load_spam_words(None), norm, instantly_key)
+    _, skipped = check.rules_actually_run(campaign_json=norm,
+                                          instantly_key=instantly_key)
+    handoffs_unchecked = "BROKEN_HANDOFF" in skipped
     issues = check.dedup_issues(findings)
     blk = [i for i in issues if i["severity"] == BLOCKER]
     blockers, warnings = len(blk), len(issues) - len(blk)
@@ -84,6 +90,13 @@ def scan_one(entry, max_leads):
     if blk:
         t = next((i for i in blk if i["check"] == "UNDEFINED_TAG"), blk[0])
         top = t["evidence"][:72] if t["check"] == "UNDEFINED_TAG" else f'{t["check"]} (~{t["leads"]} leads)'
+    if handoffs_unchecked:
+        # A rule that sat out counts as a warning, never as silence: a CLEAR
+        # row over an unverified handoff is the false green this tool exists
+        # to prevent.
+        warnings += 1
+        note = f"BROKEN_HANDOFF not checked (set ${ENV_VAR['instantly']})"
+        top = f"{top}; {note}" if top else note
     return {
         "name": norm["campaign"]["name"] or entry.get("name", ""),
         "platform": platform, "leads": len(norm.get("leads", [])),

@@ -56,6 +56,28 @@ def _strip_invisibles(text, platform=None):
     return normalize_invisibles(text)[0]
 
 
+# A merge tag's NAME is an identifier, not prose: {{Q1–Q2 Goal}} -> {{Q1-Q2 Goal}}
+# stops resolving and the lead renders blank. The prose transforms below must
+# therefore never edit inside {{...}} or a single-brace tag ({FIRST  NAME} is
+# HeyReach's raw syntax). A single-brace group WITH a pipe is spintax — prose —
+# and stays editable. _strip_invisibles stays unmasked on purpose (an invisible
+# char inside a tag name is itself what breaks resolution) and _foreign_tags
+# works ON the tags.
+TAG_SPAN_RE = re.compile(r"\{\{.*?\}\}|\{[^{}|]*\}")
+
+
+def _masked(fn):
+    def wrapper(text, platform=None):
+        out, last = [], 0
+        for m in TAG_SPAN_RE.finditer(text):
+            out.append(fn(text[last:m.start()], platform))
+            out.append(m.group())
+            last = m.end()
+        out.append(fn(text[last:], platform))
+        return "".join(out)
+    return wrapper
+
+
 def _space_before_punct(text, platform=None):
     # "Hey Anne ," -> "Hey Anne,"  — the tell of a trailing space in a CRM value.
     # Only , . ! ? — NOT : or ; . A space before a colon is almost never a merge
@@ -98,10 +120,10 @@ def _foreign_tags(text, platform=None):
 TEMPLATE_FIXES = [
     ("invisible_chars", "strip zero-width and non-breaking characters", _strip_invisibles),
     ("foreign_tags",    "convert another platform's merge tags to this one's", _foreign_tags),
-    ("space_before_punct", "remove space before punctuation", _space_before_punct),
-    ("collapse_spaces", "collapse repeated spaces", _collapse_spaces),
-    ("double_punct",    "collapse doubled commas and periods", _double_punct),
-    ("prose_dash",      "replace em/en dash used as prose punctuation", _prose_dash),
+    ("space_before_punct", "remove space before punctuation", _masked(_space_before_punct)),
+    ("collapse_spaces", "collapse repeated spaces", _masked(_collapse_spaces)),
+    ("double_punct",    "collapse doubled commas and periods", _masked(_double_punct)),
+    ("prose_dash",      "replace em/en dash used as prose punctuation", _masked(_prose_dash)),
 ]
 
 
@@ -303,7 +325,11 @@ def _stale(key, detail="changed on the platform"):
 
 def _patch_instantly_sequences(sequences, edits):
     """Patch a live Instantly tree only if every planned source still matches."""
-    by_key = {(e["step"], e["variant"], e["field"]): e for e in edits}
+    # str() on both sides: the schema allows string steps and json round-trips
+    # keep whatever type the campaign JSON holds, while the writer's own counter
+    # is an int. Comparing them raw made every schema-legal string-step edit
+    # read as "missing" and abort.
+    by_key = {(str(e["step"]), str(e["variant"]), e["field"]): e for e in edits}
     touched, step_no = set(), 0
     for sequence in sequences:
         for step in sequence.get("steps", []):
@@ -311,7 +337,7 @@ def _patch_instantly_sequences(sequences, edits):
             for i, variant in enumerate(step.get("variants", [])):
                 vid = chr(ord("A") + i)
                 for field in ("subject", "body"):
-                    key = (step_no, vid, field)
+                    key = (str(step_no), vid, field)
                     edit = by_key.get(key)
                     if not edit:
                         continue
@@ -322,8 +348,10 @@ def _patch_instantly_sequences(sequences, edits):
                     touched.add(key)
     missing = set(by_key) - touched
     if missing:
-        _stale(sorted(missing, key=lambda item: tuple(map(str, item)))[0],
-               "no longer exists on the platform")
+        _stale(sorted(missing)[0],
+               "was not found in the live sequence — the copy changed, or the "
+               "local JSON's step/variant ids do not match the platform's "
+               "positional A/B numbering")
     return len(touched)
 
 
@@ -394,7 +422,7 @@ def _hr_patch_tree(node, edits_by_key, enabled, step_no=0, counter=None, touched
     ntype = node.get("nodeType")
     if ntype in HR_MESSAGE_NODES:
         counter["n"] += 1
-        step = counter["n"]
+        step = str(counter["n"])   # keys are strings — see _patch_instantly_sequences
         pl = node.get("payload") or {}
         msgs = pl.get("messages") or []
         for i, m in enumerate(msgs):
@@ -435,6 +463,11 @@ def _apply_heyreach(campaign, edits, api_key, enabled=None):
     import httpx
 
     cid = campaign["campaign"]["id"]
+    # HeyReach ids are numeric and its API rejects string ids in JSON bodies
+    # (GetLeadsFromList needed int(list_id) for the same reason). Query params
+    # stringify anyway, so one numeric form serves both.
+    if str(cid).isdigit():
+        cid = int(cid)
     cx = httpx.Client(base_url="https://api.heyreach.io/api/public",
                       headers={"X-API-KEY": api_key}, timeout=30.0)
     try:
@@ -462,12 +495,13 @@ def _apply_heyreach(campaign, edits, api_key, enabled=None):
             seq.raise_for_status()
             tree = seq.json()
 
-            edits_by_key = {(e["step"], e["variant"], e["field"]): e for e in edits}
+            edits_by_key = {(str(e["step"]), str(e["variant"]), e["field"]): e
+                            for e in edits}
             touched = _hr_patch_tree(tree, edits_by_key, enabled)
             touched_keys = {tuple(item[:3]) for item in touched}
             missing = set(edits_by_key) - touched_keys
             if missing:
-                _stale(sorted(missing, key=lambda item: tuple(map(str, item)))[0],
+                _stale(sorted(missing)[0],
                        "no longer exists or no longer needs that fix")
             if not touched:
                 return 0

@@ -38,7 +38,7 @@
   ],
   "leads": [
     { "id": "L1", "email": "jane@acme.com", "first_name": "Jane", "company_name": "Acme",
-      "payload": { "company": "Acme", "competitor": "Beta Co", "funding_stage": "Series A",
+      "payload": { "company": "Acme", "competitor": "Beta Co.", "funding_stage": "Series A",
                    "ai_personalization": "saw your team doubled headcount last quarter" } },
     { "id": "L2", "email": "bob@globex.com", "first_name": "BOB", "company_name": "Globex Inc.",
       "payload": { "company": "Globex Inc.", "competitor": "", "funding_stage": "Seed",
