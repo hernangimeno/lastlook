@@ -13,7 +13,9 @@ Exit codes: 0 clear, 1 warnings only, 2 blockers, 3 tool error.
 import argparse
 import csv
 import json
+import math
 import os
+import stat
 import sys
 
 from . import check, fix as fixmod, recap, render
@@ -159,16 +161,32 @@ def _offer_to_save(platform, key):
     if answer.strip().lower() not in ("y", "yes"):
         return
     line = f"{ENV_VAR[platform]}={key}\n"
+    flags = os.O_RDWR | os.O_CREAT
+    if hasattr(os, "O_NOFOLLOW"):
+        flags |= os.O_NOFOLLOW
     try:
-        existing = open(path, encoding="utf-8").read() if os.path.exists(path) else ""
-        if ENV_VAR[platform] in existing:
-            print(f"  {ENV_VAR[platform]} is already in {path}; not touching it.", file=sys.stderr)
-            return
-        with open(path, "a", encoding="utf-8") as f:
+        # Open once and refuse symlinks/non-files. Following a hostile `.env`
+        # symlink could append the secret to an unrelated file and chmod it 600.
+        fd = os.open(path, flags, 0o600)
+        with os.fdopen(fd, "r+", encoding="utf-8") as f:
+            if not stat.S_ISREG(os.fstat(f.fileno()).st_mode):
+                raise OSError("destination is not a regular file")
+            existing = f.read()
+            defined = any(
+                ln.partition("=")[0].strip() == ENV_VAR[platform]
+                for ln in existing.splitlines()
+                if ln.strip() and not ln.lstrip().startswith("#") and "=" in ln
+            )
+            if defined:
+                print(f"  {ENV_VAR[platform]} is already in {path}; not touching it.",
+                      file=sys.stderr)
+                return
+            f.seek(0, os.SEEK_END)
             if existing and not existing.endswith("\n"):
                 f.write("\n")
             f.write(line)
-        os.chmod(path, 0o600)
+            f.flush()
+            os.fchmod(f.fileno(), 0o600)
         print(f"  Saved. {path} is chmod 600 — make sure your .gitignore covers it.",
               file=sys.stderr)
     except OSError as e:
@@ -241,9 +259,12 @@ def _run_checks(rows, campaign, args):
     except ValueError as e:
         _die(str(e))
     forbidden = _forbidden(getattr(args, "forbidden_terms", None))
+    spam_path = getattr(args, "spam_words", None)
+    if spam_path and not os.path.isfile(spam_path):
+        _die(f"no such spam-words file: {spam_path}")
     check_links = getattr(args, "check_links", False)
     findings = check.run(
-        rows, check.load_spam_words(getattr(args, "spam_words", None)),
+        rows, check.load_spam_words(spam_path),
         campaign_json=campaign,
         instantly_key=getattr(args, "instantly_key", None),
         check_links=check_links,
@@ -251,7 +272,8 @@ def _run_checks(rows, campaign, args):
         enabled=enabled)
     ran, skipped = check.rules_actually_run(
         enabled=enabled, campaign_json=campaign, check_links=check_links,
-        forbidden_terms=forbidden)
+        forbidden_terms=forbidden,
+        instantly_key=getattr(args, "instantly_key", None))
 
     issues = check.dedup_issues(findings)
     print(check.verdict_block(rows, findings))
@@ -440,7 +462,7 @@ def cmd_fix(args):
         n = fixmod.apply_template_fixes(campaign, edits, key, enabled)
     except fixmod.ApplyUnsupported as e:
         _die(str(e))
-    except fixmod.WrongCampaign as e:
+    except (fixmod.WrongCampaign, fixmod.StaleCampaign) as e:
         # Checked against the live campaign, before any write. Kept separate from
         # the generic handler below, whose "nothing may have been written" is a
         # maybe — this one is a certainty.
@@ -506,6 +528,26 @@ class _Parser(argparse.ArgumentParser):
         raise SystemExit(EXIT_ERROR)
 
 
+def _positive_int(value):
+    try:
+        parsed = int(value)
+    except ValueError as exc:
+        raise argparse.ArgumentTypeError("must be a positive integer") from exc
+    if parsed <= 0:
+        raise argparse.ArgumentTypeError("must be greater than zero")
+    return parsed
+
+
+def _percentage(value):
+    try:
+        parsed = float(value)
+    except ValueError as exc:
+        raise argparse.ArgumentTypeError("must be a number from 0 to 100") from exc
+    if not math.isfinite(parsed) or not 0 <= parsed <= 100:
+        raise argparse.ArgumentTypeError("must be a finite number from 0 to 100")
+    return parsed
+
+
 def build_parser():
     ap = _Parser(prog="lastlook", description=__doc__,
                  formatter_class=argparse.RawDescriptionHelpFormatter)
@@ -520,7 +562,7 @@ def build_parser():
     p.add_argument("--campaign", required=True, help="campaign name or id")
     p.add_argument("--key", default=None,
                    help="API key; defaults to the platform env var, .env, then a prompt")
-    p.add_argument("--max-leads", type=int, default=None,
+    p.add_argument("--max-leads", type=_positive_int, default=None,
                    help="sample at most N leads (default: every lead)")
     p.add_argument("-o", "--out", default=None, help="output path (default: campaign.json)")
     p.set_defaults(func=cmd_pull)
@@ -551,7 +593,7 @@ def build_parser():
     p.add_argument("--campaign", required=True, help="campaign name or id")
     p.add_argument("--key", default=None,
                    help="API key; defaults to the platform env var, .env, then a prompt")
-    p.add_argument("--max-leads", type=int, default=None,
+    p.add_argument("--max-leads", type=_positive_int, default=None,
                    help="sample at most N leads (default: every lead)")
     p.add_argument("--instantly-key", default=os.environ.get("INSTANTLY_API_KEY"),
                    help="key for the handoff check (default: $INSTANTLY_API_KEY)")
@@ -579,7 +621,7 @@ def build_parser():
                        description="Fill rate per merge tag across the lead list: the "
                                    "proactive view of the blank-merge problem.")
     p.add_argument("campaign_json", help="campaign JSON from `lastlook pull`")
-    p.add_argument("--min-fill", type=float, default=None,
+    p.add_argument("--min-fill", type=_percentage, default=None,
                    help="flag variables filling below this %% (default: 95)")
     p.set_defaults(func=cmd_coverage)
 
@@ -588,9 +630,9 @@ def build_parser():
                                    "first. Leads are sampled; re-run a flagged campaign in "
                                    "full with `lastlook audit`.")
     p.add_argument("--manifest", required=True,
-                   help='JSON list of {"platform","campaign","key","name"}')
+                   help='JSON list of {"platform","campaign","key_env","name"}')
     p.add_argument("--label", default="", help="a name for this scan, used in the title")
-    p.add_argument("--max-leads", type=int, default=200,
+    p.add_argument("--max-leads", type=_positive_int, default=200,
                    help="leads sampled per campaign (default: 200)")
     p.add_argument("--out", default=None,
                    help="summary CSV path (default: lastlook.fleet.<label>.csv)")

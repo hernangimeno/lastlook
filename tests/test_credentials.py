@@ -10,6 +10,7 @@ import os
 import subprocess
 import sys
 import tempfile
+from unittest import mock
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.dirname(HERE)
@@ -82,6 +83,31 @@ with tempfile.TemporaryDirectory() as d:
     from lastlook import cli as cli2
     cli2._load_dotenv()   # no .env present
     t("missing .env is not an error", True)
+
+print("\n— saving cannot follow a symlink —")
+with tempfile.TemporaryDirectory() as d:
+    target = os.path.join(d, "target.txt")
+    open(target, "w").write("leave-me-alone\n")
+    os.symlink(target, os.path.join(d, ".env"))
+    before = os.getcwd()
+    try:
+        os.chdir(d)
+        with mock.patch("builtins.input", return_value="y"):
+            cli._offer_to_save("instantly", "secret-value")
+    finally:
+        os.chdir(before)
+    t("symlink target is untouched", open(target).read() == "leave-me-alone\n")
+
+print("\n— fleet manifests can keep keys in the environment —")
+from lastlook import fleet
+os.environ["ACME_TEST_KEY"] = "from-env"
+try:
+    t("key_env resolves without a plaintext manifest key",
+      fleet.key_for_entry({"platform": "instantly", "key_env": "ACME_TEST_KEY"}) == "from-env")
+    t("plaintext key remains backward compatible",
+      fleet.key_for_entry({"platform": "instantly", "key": "legacy"}) == "legacy")
+finally:
+    os.environ.pop("ACME_TEST_KEY", None)
 
 print("\n— .env can never be committed —")
 gi = open(os.path.join(ROOT, ".gitignore")).read()

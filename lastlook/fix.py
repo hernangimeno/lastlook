@@ -290,6 +290,43 @@ def _assert_same_campaign(local_name, live_name, cid):
         f"written. Re-pull the campaign and try again.")
 
 
+class StaleCampaign(RuntimeError):
+    """The live copy changed after the local campaign JSON was pulled."""
+
+
+def _stale(key, detail="changed on the platform"):
+    step, variant, field = key
+    raise StaleCampaign(
+        f"refusing to write: step {step} variant {variant} {field} {detail}. "
+        f"Nothing was written. Re-pull the campaign, review the new diff, and try again.")
+
+
+def _patch_instantly_sequences(sequences, edits):
+    """Patch a live Instantly tree only if every planned source still matches."""
+    by_key = {(e["step"], e["variant"], e["field"]): e for e in edits}
+    touched, step_no = set(), 0
+    for sequence in sequences:
+        for step in sequence.get("steps", []):
+            step_no += 1
+            for i, variant in enumerate(step.get("variants", [])):
+                vid = chr(ord("A") + i)
+                for field in ("subject", "body"):
+                    key = (step_no, vid, field)
+                    edit = by_key.get(key)
+                    if not edit:
+                        continue
+                    current = variant.get(field) or ""
+                    if current != edit["before"]:
+                        _stale(key)
+                    variant[field] = edit["after"]
+                    touched.add(key)
+    missing = set(by_key) - touched
+    if missing:
+        _stale(sorted(missing, key=lambda item: tuple(map(str, item)))[0],
+               "no longer exists on the platform")
+    return len(touched)
+
+
 def apply_template_fixes(campaign, edits, api_key, enabled=None):
     """Write the edited templates back to the platform."""
     platform = campaign.get("platform")
@@ -303,41 +340,27 @@ def apply_template_fixes(campaign, edits, api_key, enabled=None):
 
     import httpx
 
-    edited = {(e["step"], e["variant"], e["field"]): e["after"] for e in edits}
     cid = campaign["campaign"]["id"]
-    cx = httpx.Client(base_url="https://api.instantly.ai/api/v2",
+    with httpx.Client(base_url="https://api.instantly.ai/api/v2",
                       headers={"Authorization": f"Bearer {api_key}",
-                               "User-Agent": "lastlook/0.1"}, timeout=30.0)
+                               "User-Agent": "lastlook/0.1"}, timeout=30.0) as cx:
+        # Read the CURRENT sequence and patch only the fields we changed. Rebuilding
+        # it from the normalized shape would drop everything normalization discards.
+        live = cx.get(f"/campaigns/{cid}")
+        live.raise_for_status()
+        live = live.json()
+        _assert_same_campaign(campaign["campaign"].get("name"), live.get("name"), cid)
+        seqs = live.get("sequences") or []
+        touched = _patch_instantly_sequences(seqs, edits)
+        if not touched:
+            return 0
 
-    # Read the CURRENT sequence and patch only the fields we changed. Rebuilding
-    # it from the normalized shape would drop everything normalization discards.
-    live = cx.get(f"/campaigns/{cid}")
-    live.raise_for_status()
-    live = live.json()
-    _assert_same_campaign(campaign["campaign"].get("name"), live.get("name"), cid)
-    seqs = live.get("sequences") or []
-
-    touched, step_no = 0, 0
-    for seq in seqs:
-        for st in seq.get("steps", []):
-            step_no += 1
-            for i, v in enumerate(st.get("variants", [])):
-                vid = chr(ord("A") + i)
-                for field in ("subject", "body"):
-                    key = (step_no, vid, field)
-                    if key in edited:
-                        v[field] = edited[key]
-                        touched += 1
-
-    if not touched:
-        cx.close()
-        return 0
-
-    r = cx.patch(f"/campaigns/{cid}", json={"sequences": seqs})
-    cx.close()
-    if r.status_code >= 400:
-        raise RuntimeError(f"Instantly rejected the update: HTTP {r.status_code} {r.text[:300]}")
-    return touched
+        response = cx.patch(f"/campaigns/{cid}", json={"sequences": seqs})
+        if response.status_code >= 400:
+            raise RuntimeError(
+                f"Instantly rejected the update: HTTP {response.status_code} "
+                f"{response.text[:300]}")
+        return touched
 
 
 # --- HeyReach writer ----------------------------------------------------------
@@ -366,6 +389,8 @@ def _hr_patch_tree(node, edits_by_key, enabled, step_no=0, counter=None, touched
     if not node:
         return touched
 
+    from .adapters.heyreach import normalize_merge_tags
+
     ntype = node.get("nodeType")
     if ntype in HR_MESSAGE_NODES:
         counter["n"] += 1
@@ -376,14 +401,23 @@ def _hr_patch_tree(node, edits_by_key, enabled, step_no=0, counter=None, touched
             vid = chr(ord("A") + i)
             if ntype == "INMAIL" and isinstance(m, dict):
                 for field, mkey in (("subject", "subject"), ("body", "message")):
-                    if (step, vid, field) not in edits_by_key:
+                    key = (step, vid, field)
+                    edit = edits_by_key.get(key)
+                    if not edit:
                         continue
-                    new, applied = fix_text(m.get(mkey) or "", "heyreach", enabled)
-                    if applied and new != m.get(mkey):
+                    current = m.get(mkey) or ""
+                    if normalize_merge_tags(current) != edit["before"]:
+                        _stale(key)
+                    new, applied = fix_text(current, "heyreach", enabled)
+                    if applied and new != current:
                         m[mkey] = new
                         touched.append((step, vid, field, applied))
             elif isinstance(m, str):
-                if (step, vid, "body") in edits_by_key:
+                key = (step, vid, "body")
+                edit = edits_by_key.get(key)
+                if edit:
+                    if normalize_merge_tags(m) != edit["before"]:
+                        _stale(key)
                     new, applied = fix_text(m, "heyreach", enabled)
                     if applied and new != m:
                         msgs[i] = new
@@ -428,8 +462,13 @@ def _apply_heyreach(campaign, edits, api_key, enabled=None):
             seq.raise_for_status()
             tree = seq.json()
 
-            keys = {(e["step"], e["variant"], e["field"]) for e in edits}
-            touched = _hr_patch_tree(tree, keys, enabled)
+            edits_by_key = {(e["step"], e["variant"], e["field"]): e for e in edits}
+            touched = _hr_patch_tree(tree, edits_by_key, enabled)
+            touched_keys = {tuple(item[:3]) for item in touched}
+            missing = set(edits_by_key) - touched_keys
+            if missing:
+                _stale(sorted(missing, key=lambda item: tuple(map(str, item)))[0],
+                       "no longer exists or no longer needs that fix")
             if not touched:
                 return 0
 

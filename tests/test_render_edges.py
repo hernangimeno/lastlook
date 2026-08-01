@@ -110,6 +110,67 @@ except SystemExit:
 finally:
     instantly.client = real_client
 
+# --- adapter pagination: list responses, missing totals, repeated cursors ---
+def lead_list_handler(request):
+    return httpx.Response(200, json=[{"id": "l1", "email": "a@example.com"}])
+
+
+with httpx.Client(base_url="https://api.instantly.ai/api/v2",
+                  transport=httpx.MockTransport(lead_list_handler)) as cx:
+    case("Instantly accepts a top-level list response",
+         len(instantly.fetch_leads(cx, "c1")), 1)
+
+cursor_calls = {"n": 0}
+
+
+def repeated_cursor_handler(request):
+    cursor_calls["n"] += 1
+    return httpx.Response(200, json={
+        "items": [{"id": f"l{cursor_calls['n']}", "email": "a@example.com"}],
+        "next_starting_after": "same-cursor",
+    })
+
+
+with httpx.Client(base_url="https://api.instantly.ai/api/v2",
+                  transport=httpx.MockTransport(repeated_cursor_handler)) as cx:
+    try:
+        instantly.fetch_leads(cx, "c1")
+        case("Instantly rejects a repeated pagination cursor", "returned", "RuntimeError")
+    except RuntimeError:
+        case("Instantly rejects a repeated pagination cursor", "RuntimeError", "RuntimeError")
+
+from lastlook.adapters import heyreach
+page_calls = {"n": 0}
+
+
+def no_total_handler(request):
+    page_calls["n"] += 1
+    count = 100 if page_calls["n"] == 1 else 1
+    return httpx.Response(200, json={
+        "items": [{"profileUrl": f"https://linkedin.example/{page_calls['n']}/{i}"}
+                  for i in range(count)]
+    })
+
+
+with httpx.Client(base_url="https://api.heyreach.io",
+                  transport=httpx.MockTransport(no_total_handler)) as cx:
+    case("HeyReach paginates when totalCount is absent",
+         len(heyreach.fetch_list_leads(cx, 1)), 101)
+
+from lastlook import fleet
+real_pull = fleet.pull_instantly.pull
+fleet.pull_instantly.pull = lambda *args: {
+    "platform": "instantly", "campaign": {"id": "c", "name": "empty"},
+    "steps": [], "leads": [], "defined_vars": [],
+}
+try:
+    fleet.scan_one({"platform": "instantly", "campaign": "c", "key": "k"}, 200)
+    case("fleet refuses a zero-message false clear", "returned", "ValueError")
+except ValueError:
+    case("fleet refuses a zero-message false clear", "ValueError", "ValueError")
+finally:
+    fleet.pull_instantly.pull = real_pull
+
 # --- unknown platform dies with a sentence and exit 3 ---
 try:
     cli._key_for("fixture", None)

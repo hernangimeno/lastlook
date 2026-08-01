@@ -146,7 +146,11 @@ def fetch_list_leads(cx, list_id, max_leads=None):
                     json={"listId": int(list_id), "offset": offset, "limit": PAGE})
         r.raise_for_status()
         data = r.json()
+        if not isinstance(data, dict):
+            raise RuntimeError("HeyReach returned a non-object lead-list response")
         items = data.get("items", [])
+        if not isinstance(items, list):
+            raise RuntimeError("HeyReach returned a non-list 'items' field")
         for ld in items:
             cf = {c.get("name"): c.get("value") for c in (ld.get("customFields") or [])}
             fn, ln_ = ld.get("firstName") or "", ld.get("lastName") or ""
@@ -165,7 +169,9 @@ def fetch_list_leads(cx, list_id, max_leads=None):
         offset += len(items)
         if max_leads and len(leads) >= max_leads:
             return leads[:max_leads]
-        if not items or offset >= data.get("totalCount", offset):
+        total = data.get("totalCount")
+        if not items or (total is not None and offset >= total) \
+                or (total is None and len(items) < PAGE):
             break
     return leads
 
@@ -204,15 +210,15 @@ def main():
 
     normalized = pull(args.api_key, args.campaign, args.max_leads)
     steps, leads, handoffs = normalized["steps"], normalized["leads"], normalized["handoffs"]
-    list_id = True
     meta = {"name": normalized["campaign"]["name"]}
     with open(args.out, "w", encoding="utf-8") as f:
         json.dump(normalized, f, ensure_ascii=False, indent=2)
 
     print(f"Pulled '{meta.get('name','')}' ({args.campaign}): {len(steps)} steps, "
           f"{len(leads)} leads, {len(handoffs)} handoff(s) -> {args.out}")
-    if list_id is None:
-        print("WARNING: campaign exposed no lead-list id; leads not pulled.", file=sys.stderr)
+    if not leads:
+        print("WARNING: 0 leads pulled — preflight needs leads to render against.",
+              file=sys.stderr)
 
 
 if __name__ == "__main__":

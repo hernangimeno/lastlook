@@ -11,8 +11,10 @@ any campaign that flags can be re-run in full with `lastlook audit`.
 Manifest JSON, one object per campaign:
 
     [
-      {"platform": "instantly", "campaign": "Q3 Outbound", "key": "...", "name": "Q3"},
-      {"platform": "heyreach",  "campaign": "12345",       "key": "...", "name": "LI"}
+      {"platform": "instantly", "campaign": "Q3 Outbound",
+       "key_env": "ACME_INSTANTLY_KEY", "name": "Q3"},
+      {"platform": "heyreach", "campaign": "12345",
+       "key_env": "ACME_HEYREACH_KEY", "name": "LI"}
     ]
 
 Usage:
@@ -21,6 +23,7 @@ Usage:
 
 import csv
 import json
+import os
 import sys
 
 from .adapters import instantly as pull_instantly
@@ -29,18 +32,41 @@ from . import render
 from . import check
 
 BLOCKER = check.BLOCKER
+ENV_VAR = {"instantly": "INSTANTLY_API_KEY", "heyreach": "HEYREACH_API_KEY"}
+
+
+def key_for_entry(entry):
+    """Resolve a fleet key without requiring secrets in the manifest.
+
+    `key` remains supported for compatibility, but `key_env` (or the platform's
+    standard environment variable) keeps credentials out of a file users are
+    likely to commit next to their project.
+    """
+    if entry.get("key"):
+        return str(entry["key"]).strip()
+    platform = entry.get("platform")
+    env_name = entry.get("key_env") or ENV_VAR.get(platform)
+    if not env_name:
+        raise ValueError(f"unknown platform {platform!r}")
+    key = os.environ.get(env_name)
+    if not key:
+        raise ValueError(f"missing API key: set ${env_name} or add key_env to the manifest")
+    return key.strip()
 
 
 def scan_one(entry, max_leads):
     platform = entry["platform"]
+    api_key = key_for_entry(entry)
     if platform == "instantly":
-        norm = pull_instantly.pull(entry["key"], entry["campaign"], max_leads)
+        norm = pull_instantly.pull(api_key, entry["campaign"], max_leads)
     elif platform == "heyreach":
-        norm = pull_heyreach.pull(entry["key"], entry["campaign"], max_leads)
+        norm = pull_heyreach.pull(api_key, entry["campaign"], max_leads)
     else:
         raise ValueError(f"unknown platform {platform}")
 
     rows = list(render.iter_rendered(norm))
+    if not rows:
+        raise ValueError("rendered 0 messages — nothing was checked")
     findings = check.run(rows, check.load_spam_words(None), norm, None)
     issues = check.dedup_issues(findings)
     blk = [i for i in issues if i["severity"] == BLOCKER]
@@ -83,11 +109,19 @@ def run(args):
               f"Nothing was checked.", file=sys.stderr)
         return 3
     for i, e in enumerate(entries):
-        missing = [k for k in ("platform", "campaign", "key") if not (e or {}).get(k)]
+        if not isinstance(e, dict):
+            print(f"lastlook: manifest entry {i} must be an object. Nothing was checked.",
+                  file=sys.stderr)
+            return 3
+        missing = [k for k in ("platform", "campaign") if not e.get(k)]
         if missing:
             print(f"lastlook: manifest entry {i} is missing {', '.join(missing)}. "
                   f"Nothing was checked.", file=sys.stderr)
             return 3
+        if e.get("key"):
+            print(f"lastlook: manifest entry {i} contains a plaintext API key. "
+                  f"Prefer key_env so the secret is not committed with the manifest.",
+                  file=sys.stderr)
 
     results = []
     for e in entries:

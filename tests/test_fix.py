@@ -4,6 +4,7 @@ A checker that cries wolf wastes your time. A FIXER that gets it wrong silently
 rewrites live copy going to real prospects. Every transform here needs a case
 proving it leaves correct text alone.
 """
+import copy
 import os
 import sys
 
@@ -100,6 +101,50 @@ t("disabled variants are skipped", all(e["variant"] != "B" for e in edits), True
 data = fix.plan_data_fixes(camp)
 t("plans both data fields", sorted(d["field"] for d in data), ["company_name", "first_name"])
 t("nothing is mutated in place", camp["steps"][0]["variants"][0]["body"], "Hey {FIRST_NAME},")
+
+print("\n— stale-write guards —")
+instant_sequences = [{"steps": [{"variants": [
+    {"subject": "hi", "body": "Hey {FIRST_NAME},"}
+]}]}]
+instant_edit = [{"step": 1, "variant": "A", "field": "body",
+                 "before": "Hey {FIRST_NAME},", "after": "Hey {{firstName}},"}]
+patched = copy.deepcopy(instant_sequences)
+t("Instantly patches an exact live match",
+  fix._patch_instantly_sequences(patched, instant_edit), 1)
+t("Instantly applies the planned replacement",
+  patched[0]["steps"][0]["variants"][0]["body"], "Hey {{firstName}},")
+for label, live in (
+        ("Instantly refuses copy changed since pull", "Someone edited this"),
+        ("Instantly refuses a missing planned field", None)):
+    tree = copy.deepcopy(instant_sequences)
+    edits = instant_edit
+    if live is None:
+        edits = [dict(instant_edit[0], variant="B")]
+    else:
+        tree[0]["steps"][0]["variants"][0]["body"] = live
+    try:
+        fix._patch_instantly_sequences(tree, edits)
+        t(label, "wrote", "StaleCampaign")
+    except fix.StaleCampaign:
+        t(label, "StaleCampaign", "StaleCampaign")
+
+hr_tree = {"nodeType": "MESSAGE", "payload": {"messages": ["Hey {FIRST_NAME}  ,"]}}
+hr_edit = {(1, "A", "body"): {
+    "step": 1, "variant": "A", "field": "body",
+    "before": "Hey {{first_name}}  ,", "after": "Hey {{first_name}},",
+}}
+patched = copy.deepcopy(hr_tree)
+t("HeyReach compares canonical tags but patches raw syntax",
+  len(fix._hr_patch_tree(patched, hr_edit, None)), 1)
+t("HeyReach preserves its single-brace merge syntax",
+  patched["payload"]["messages"][0], "Hey {FIRST_NAME},")
+stale = copy.deepcopy(hr_tree)
+stale["payload"]["messages"][0] = "Edited live"
+try:
+    fix._hr_patch_tree(stale, hr_edit, None)
+    t("HeyReach refuses copy changed since pull", "wrote", "StaleCampaign")
+except fix.StaleCampaign:
+    t("HeyReach refuses copy changed since pull", "StaleCampaign", "StaleCampaign")
 
 print("\n— apply refuses what it cannot do —")
 try:

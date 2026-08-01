@@ -67,6 +67,36 @@ t("no key -> reports nothing rather than a false all-clear",
   check.chk_handoffs(camp, None), [])
 t("no handoffs -> nothing to check", check.chk_handoffs({"handoffs": []}, "key"), [])
 t("no campaign json -> nothing to check", check.chk_handoffs(None, "key"), [])
+t("handoff without a key is reported as NOT CHECKED",
+  check.rules_actually_run(campaign_json=camp)[1].get("BROKEN_HANDOFF"),
+  "needs --instantly-key")
+
+print("\n— disabled network rules make no network calls —")
+calls = []
+real_handoffs, real_links = check.chk_handoffs, check.chk_link_health
+check.chk_handoffs = lambda *args, **kwargs: calls.append("handoff") or []
+check.chk_link_health = lambda *args, **kwargs: calls.append("link") or []
+try:
+    check.run([{"subject": "", "body": "clean", "step": 1, "variant": "A"}],
+              set(), campaign_json=camp, instantly_key="key", check_links=True,
+              enabled={"EM_DASH"})
+finally:
+    check.chk_handoffs, check.chk_link_health = real_handoffs, real_links
+t("--only skips handoff and link I/O", calls, [])
+
+print("\n— link checker SSRF guard —")
+for url in ("http://127.0.0.1/admin", "http://169.254.169.254/latest/meta-data/",
+            "http://localhost:8000/", "http://10.0.0.1/"):
+    try:
+        check._assert_public_http_url(url)
+        t(f"blocks {url}", "allowed", "UnsafeURL")
+    except check.UnsafeURL:
+        t(f"blocks {url}", "UnsafeURL", "UnsafeURL")
+try:
+    check._assert_public_http_url("https://93.184.216.34/")
+    t("allows a public HTTPS address", True, True)
+except check.UnsafeURL as exc:
+    t("allows a public HTTPS address", str(exc), "allowed")
 
 print("\n— the guard is wired into the run —")
 t("UNKNOWN_SYNTAX is in the per-row checks",

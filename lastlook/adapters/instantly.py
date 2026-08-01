@@ -49,6 +49,7 @@ def resolve_campaign(cx, campaign):
         return r.json()
     # else search by name through the paginated list
     starting_after = None
+    seen_cursors = set()
     while True:
         params = {"limit": PAGE}
         if starting_after:
@@ -56,13 +57,18 @@ def resolve_campaign(cx, campaign):
         r = cx.get("/campaigns", params=params)
         r.raise_for_status()
         data = r.json()
-        items = data.get("items", data if isinstance(data, list) else [])
+        items = data if isinstance(data, list) else data.get("items", [])
         for c in items:
             if c.get("name", "").strip().lower() == campaign.strip().lower():
                 full = cx.get(f"/campaigns/{c['id']}")
                 full.raise_for_status()
                 return full.json()
-        starting_after = data.get("next_starting_after")
+        next_cursor = None if isinstance(data, list) else data.get("next_starting_after")
+        if next_cursor and next_cursor in seen_cursors:
+            raise RuntimeError("Instantly repeated a campaign-list pagination cursor")
+        if next_cursor:
+            seen_cursors.add(next_cursor)
+        starting_after = next_cursor
         if not starting_after or not items:
             break
     # LookupError, not sys.exit: sys.exit(str) exits 1, which the CLI documents
@@ -125,7 +131,7 @@ def _delay_days(step):
 
 
 def fetch_leads(cx, campaign_id, max_leads=None):
-    leads, starting_after = [], None
+    leads, starting_after, seen_cursors = [], None, set()
     while True:
         body = {"campaign": campaign_id, "limit": PAGE}
         if starting_after:
@@ -133,7 +139,7 @@ def fetch_leads(cx, campaign_id, max_leads=None):
         r = cx.post("/leads/list", json=body)
         r.raise_for_status()
         data = r.json()
-        items = data.get("items", data if isinstance(data, list) else [])
+        items = data if isinstance(data, list) else data.get("items", [])
         for ld in items:
             leads.append({
                 "id": ld.get("id") or ld.get("email"),
@@ -144,7 +150,12 @@ def fetch_leads(cx, campaign_id, max_leads=None):
                 "company_domain": ld.get("company_domain"),
                 "payload": ld.get("payload") or {},        # custom variables
             })
-        starting_after = data.get("next_starting_after")
+        next_cursor = None if isinstance(data, list) else data.get("next_starting_after")
+        if next_cursor and next_cursor in seen_cursors:
+            raise RuntimeError("Instantly repeated a lead-list pagination cursor")
+        if next_cursor:
+            seen_cursors.add(next_cursor)
+        starting_after = next_cursor
         if max_leads and len(leads) >= max_leads:
             return leads[:max_leads]
         if not starting_after or not items:

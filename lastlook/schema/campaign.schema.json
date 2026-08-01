@@ -42,12 +42,13 @@
           },
           "delay_days": {
             "type": ["number", "null"],
+            "minimum": 0,
             "description": "Days to wait AFTER this step before the next one. Null when the platform does not state it — null disables the pacing check rather than being treated as zero."
           },
           "limits": {
             "type": "object",
             "description": "Hard character caps for this channel, e.g. {\"body\": 300} for a LinkedIn connection note.",
-            "additionalProperties": { "type": "integer" }
+            "additionalProperties": { "type": "integer", "minimum": 0 }
           },
           "variants": {
             "type": "array",

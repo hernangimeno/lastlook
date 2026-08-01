@@ -16,9 +16,11 @@ Usage:
 
 import argparse
 import csv
+import ipaddress
 import json
 import os
 import re
+import socket
 from collections import Counter, defaultdict
 
 import difflib
@@ -408,28 +410,75 @@ def chk_handoffs(campaign_json, instantly_key):
               f"(pass --instantly-key to check them).")
         return out
     import httpx
-    cx = httpx.Client(base_url="https://api.instantly.ai/api/v2",
+    with httpx.Client(base_url="https://api.instantly.ai/api/v2",
                       headers={"Authorization": f"Bearer {instantly_key}",
-                               "User-Agent": "campaign-preflight/1.0"}, timeout=20.0)
-    for h in handoffs:
-        tid = h.get("targetId")
-        ok = False
-        try:
-            ok = cx.get(f"/campaigns/{tid}").status_code == 200
-        except Exception:
-            ok = False
-        if not ok:
-            out.append({
-                "lead_id": "(campaign-level)", "lead_email": "", "step": "",
-                "variant": "", "channel": "handoff",
-                "check": "BROKEN_HANDOFF", "severity": BLOCKER,
-                "evidence": f"SEND_LEAD_TO_INSTANTLY target {tid} not found in Instantly",
-            })
-    cx.close()
+                               "User-Agent": "lastlook/0.1"}, timeout=20.0) as cx:
+        for h in handoffs:
+            tid = h.get("targetId")
+            if not tid:
+                missing = True
+            else:
+                response = cx.get(f"/campaigns/{tid}")
+                missing = response.status_code == 404
+                if not missing:
+                    # Authentication, rate-limit, billing, and server failures mean
+                    # the handoff was NOT checked. They must become exit 3 at the CLI,
+                    # not a false "target is gone" blocker.
+                    response.raise_for_status()
+            if missing:
+                out.append({
+                    "lead_id": "(campaign-level)", "lead_email": "", "step": "",
+                    "variant": "", "channel": "handoff",
+                    "check": "BROKEN_HANDOFF", "severity": BLOCKER,
+                    "evidence": f"SEND_LEAD_TO_INSTANTLY target {tid or '(missing id)'} "
+                                f"not found in Instantly",
+                })
     return out
 
 
 HTTP_URL_RE = re.compile(r"https?://[^\s<>\"')\]}]+")
+
+
+class UnsafeURL(ValueError):
+    """A link-health target could reach a non-public network address."""
+
+
+def _assert_public_http_url(url):
+    """Reject SSRF targets before httpx opens a socket.
+
+    Campaign copy is remote input. `--check-links` must never turn a URL in that
+    copy into access to localhost, cloud metadata, or another private service.
+    This guard is also installed as an httpx request hook, so every redirect is
+    checked rather than only the URL visible in the template.
+    """
+    import httpx
+
+    parsed = httpx.URL(url)
+    if parsed.scheme not in ("http", "https") or not parsed.host:
+        raise UnsafeURL("only absolute http(s) URLs are allowed")
+    if parsed.username or parsed.password:
+        raise UnsafeURL("credentials in URLs are not allowed")
+    if parsed.port not in (None, 80, 443):
+        raise UnsafeURL("only ports 80 and 443 are allowed")
+
+    host = parsed.host.rstrip(".").lower()
+    if host == "localhost" or host.endswith((".localhost", ".local", ".internal")):
+        raise UnsafeURL("local hostnames are not allowed")
+    try:
+        addresses = {ipaddress.ip_address(host)}
+    except ValueError:
+        try:
+            addresses = {
+                ipaddress.ip_address(item[4][0].split("%", 1)[0])
+                for item in socket.getaddrinfo(
+                    host, parsed.port or (443 if parsed.scheme == "https" else 80),
+                    type=socket.SOCK_STREAM)
+            }
+        except socket.gaierror as exc:
+            raise UnsafeURL("hostname did not resolve") from exc
+    if not addresses or any(not address.is_global for address in addresses):
+        raise UnsafeURL("private, loopback, link-local, and reserved addresses are blocked")
+    return parsed
 
 
 def chk_link_health(rows, enabled):
@@ -455,12 +504,17 @@ def chk_link_health(rows, enabled):
     # was (distinct URLs x up to 12s) and was the only part of a check run that
     # took real time; a campaign with a dozen links and one slow host could sit
     # for a minute. Capped at 8 so we never look like a scraper to one host.
+    def guard_request(request):
+        _assert_public_http_url(str(request.url))
+
     cx = httpx.Client(timeout=12.0, follow_redirects=True,
-                      headers={"User-Agent": "Mozilla/5.0 campaign-preflight"})
+                      headers={"User-Agent": "Mozilla/5.0 lastlook/0.1"},
+                      event_hooks={"request": [guard_request]})
 
     def probe(item):
         u, (step, variant) = item
         try:
+            _assert_public_http_url(u)
             resp = cx.get(u)
             return (u, step, variant, f"HTTP {resp.status_code}") if resp.status_code >= 400 else None
         except Exception as e:
@@ -1084,7 +1138,7 @@ OPT_IN_RULES = {"LINK_HEALTH": "--check-links", "FORBIDDEN_TERM": "--forbidden-t
 
 
 def rules_actually_run(enabled=None, campaign_json=None, check_links=False,
-                       forbidden_terms=None):
+                       forbidden_terms=None, instantly_key=None):
     """The rules this invocation genuinely evaluated, and why the rest sat out.
 
     Returns (ran, skipped) where skipped maps rule name -> reason. The recap
@@ -1100,6 +1154,9 @@ def rules_actually_run(enabled=None, campaign_json=None, check_links=False,
             skipped[name] = "needs --check-links"
         elif name == "FORBIDDEN_TERM" and not forbidden_terms:
             skipped[name] = "needs --forbidden-terms"
+        elif name == "BROKEN_HANDOFF" and campaign_json \
+                and campaign_json.get("handoffs") and not instantly_key:
+            skipped[name] = "needs --instantly-key"
         else:
             ran.add(name)
     return ran, skipped
@@ -1132,8 +1189,12 @@ def run(rows, spam_words, campaign_json=None, instantly_key=None, check_links=Fa
     findings.extend(chk_variant_integrity(campaign_json))
     findings.extend(chk_subject_integrity(campaign_json))
     findings.extend(chk_step_pacing(campaign_json))
-    findings.extend(chk_handoffs(campaign_json, instantly_key))
-    findings.extend(chk_link_health(rows, check_links))
+    # These two checks perform network I/O. A disabled rule must mean no call at
+    # all, not "make the request and throw its finding away afterwards".
+    if enabled is None or "BROKEN_HANDOFF" in enabled:
+        findings.extend(chk_handoffs(campaign_json, instantly_key))
+    if enabled is None or "LINK_HEALTH" in enabled:
+        findings.extend(chk_link_health(rows, check_links))
     if enabled is not None:
         findings = [f for f in findings if f["check"] in enabled]
     return findings

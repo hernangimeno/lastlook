@@ -20,6 +20,7 @@ dist/
 rendered.jsonl
 lastlook.fixes.csv
 lastlook.removals.csv
+lastlook.fleet.json
 campaign.json
 .DS_Store
 dist/

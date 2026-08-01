@@ -161,9 +161,15 @@ leads per campaign by default (`--max-leads`) rather than pulling every lead in
 every list, and anything that flags can be re-run in full with `audit`:
 
 ```json
-[{"platform": "instantly", "campaign": "Q3 Outbound", "key": "...", "name": "Q3"},
- {"platform": "heyreach",  "campaign": "12345",       "key": "...", "name": "LinkedIn"}]
+[{"platform": "instantly", "campaign": "Q3 Outbound", "key_env": "ACME_INSTANTLY_KEY", "name": "Q3"},
+ {"platform": "heyreach",  "campaign": "12345",       "key_env": "ACME_HEYREACH_KEY",  "name": "LinkedIn"}]
 ```
+
+Set those environment variables before the scan. If `key_env` is omitted,
+`fleet` uses `INSTANTLY_API_KEY` or `HEYREACH_API_KEY`. A literal `"key"` still
+works for older manifests, but lastlook warns because a manifest is easy to
+commit; use `lastlook.fleet.json` (gitignored here) and environment variables
+instead.
 
 ## Fixing
 
@@ -211,6 +217,11 @@ Useful flags:
 --check-links                              # probe every URL in the copy
 --no-recap                                 # verdict table only
 ```
+
+Link probing is restricted to public HTTP(S) destinations on ports 80 and 443.
+Localhost, private/link-local addresses, URL credentials, and redirects to those
+targets are blocked so campaign copy cannot turn the checker into a route to an
+internal service.
 
 A misspelled rule name is a hard error, never a silent no-op. A filter that
 quietly matched nothing would let a campaign look clean for the wrong reason.

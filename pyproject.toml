@@ -1,6 +1,6 @@
 [build-system]
-requires = ["setuptools>=68"]
-build-backend = "setuptools.build_meta"
+requires = ["hatchling>=1.27,<2"]
+build-backend = "hatchling.build"
 
 [project]
 name = "lastlook"
@@ -28,8 +28,5 @@ Issues = "https://github.com/hernangimeno/lastlook/issues"
 [project.scripts]
 lastlook = "lastlook.cli:main"
 
-[tool.setuptools.packages.find]
-include = ["lastlook*"]
-
-[tool.setuptools.package-data]
-lastlook = ["schema/*.json"]
+[tool.hatch.build.targets.wheel]
+packages = ["lastlook"]

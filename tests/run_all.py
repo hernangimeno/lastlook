@@ -106,6 +106,16 @@ def run_schema():
         failures += 1
     except CampaignError:
         print("PASS  a bad field is rejected by name")
+    for label, bad_delay in (("boolean delay", False), ("negative delay", -1),
+                             ("non-finite delay", float("nan"))):
+        try:
+            validate({"platform": "x", "campaign": {"name": "n"}, "leads": [],
+                      "steps": [{"step": 1, "delay_days": bad_delay,
+                                 "variants": [{"id": "A"}]}]})
+            print(f"FAIL  {label} was accepted")
+            failures += 1
+        except CampaignError:
+            print(f"PASS  {label} is rejected")
     return failures
 
 
@@ -142,6 +152,9 @@ def run_cli():
         # A usage error is a TOOL error. Exit 2 would read as "blockers found".
         ("unknown subcommand -> 3", ["audits"], 3),
         ("bad flag value -> 3", ["coverage", clean, "--min-fill", "abc"], 3),
+        ("NaN fill percentage -> 3", ["coverage", clean, "--min-fill", "nan"], 3),
+        ("zero max-leads -> 3", ["audit", "instantly", "--campaign", "x",
+                                 "--max-leads", "0"], 3),
         ("missing required flag -> 3", ["fleet"], 3),
         ("no arguments at all -> 3", [], 3),
         # --forbidden-terms used to scan templates only, so without the campaign
@@ -153,6 +166,8 @@ def run_cli():
         ("forbidden-terms nonexistent file -> 3",
          ["check", "/tmp/_ll.jsonl", "--campaign-json", bugs,
           "--forbidden-terms", "./_nope_terms.txt"], 3),
+        ("spam-words nonexistent file -> 3",
+         ["check", "/tmp/_ll.jsonl", "--spam-words", "./_nope_spam.txt"], 3),
         # Rule names are shouted in the catalog; case alone must not be a wall.
         ("lowercase rule name is accepted",
          ["check", "/tmp/_ll.jsonl", "--campaign-json", bugs, "--only", "em_dash"], 2),
