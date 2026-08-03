@@ -11,7 +11,7 @@ Sends      Hi , noticed  is scaling. I couldn't find information about this
            company.
 ```
 
-No campaign UI shows you that line before it goes to 800 people. lastlook pulls the live campaign from Instantly or HeyReach, renders every variant against every real lead, and runs 35 checks on the output instead of the template.
+No campaign UI shows you that line at scale for all your leads before it goes to 800 people. lastlook pulls the live campaign from Instantly or HeyReach, renders every variant against every real lead, and runs 35 checks on the output instead of the template.
 
 ```bash
 pip install git+https://github.com/hernangimeno/lastlook
